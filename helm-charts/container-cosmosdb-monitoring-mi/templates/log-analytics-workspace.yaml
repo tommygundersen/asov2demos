@@ -1,0 +1,18 @@
+{{- if .Values.monitoring.enabled }}
+# ASO v2: Log Analytics Workspace for Application Insights
+apiVersion: operationalinsights.azure.com/v1api20210601
+kind: Workspace
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.workspaceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: {{ include "container-cosmosdb-monitoring.workspaceName" . }}
+  location: {{ .Values.location | default "eastus" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  sku:
+    name: PerGB2018
+  retentionInDays: {{ .Values.monitoring.retentionDays | default 30 }}
+{{- end }}

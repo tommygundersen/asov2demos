@@ -1,0 +1,12 @@
+# ASO v2: Blob Container
+apiVersion: storage.azure.com/v1api20230101
+kind: StorageAccountsBlobServicesContainer
+metadata:
+  name: ${APP_NAME}-${BLOB_CONTAINER_NAME}
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${BLOB_CONTAINER_NAME}
+  owner:
+    name: ${APP_NAME}sa
+  publicAccess: None

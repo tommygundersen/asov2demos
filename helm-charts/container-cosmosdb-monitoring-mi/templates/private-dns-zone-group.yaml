@@ -1,0 +1,16 @@
+# ASO v2: Private DNS Zone Group for Cosmos DB Private Endpoint
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpointsPrivateDnsZoneGroup
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.privateEndpointName" . }}-dnsgroup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: default
+  owner:
+    name: {{ include "container-cosmosdb-monitoring.privateEndpointName" . }}
+  privateDnsZoneConfigs:
+    - name: cosmos-dns-config
+      privateDnsZoneReference:
+        armId: {{ include "container-cosmosdb-monitoring.privateDnsZoneId" . }}

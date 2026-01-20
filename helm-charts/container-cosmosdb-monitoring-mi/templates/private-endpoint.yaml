@@ -1,0 +1,25 @@
+# ASO v2: Private Endpoint for Cosmos DB
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpoint
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.privateEndpointName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: {{ include "container-cosmosdb-monitoring.privateEndpointName" . }}
+  location: {{ .Values.location | default "eastus" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  subnet:
+    reference:
+      armId: {{ include "container-cosmosdb-monitoring.privateEndpointSubnetId" . }}
+  privateLinkServiceConnections:
+    - name: {{ .Values.appName }}-cosmos-connection
+      privateLinkServiceReference:
+        # Reference to the Cosmos DB account
+        group: documentdb.azure.com
+        kind: DatabaseAccount
+        name: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}
+      groupIds:
+        - Sql  # For SQL API Cosmos DB

@@ -1,0 +1,32 @@
+# ASO v2: Azure Cosmos DB Account
+apiVersion: documentdb.azure.com/v1api20231115
+kind: DatabaseAccount
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}
+  location: {{ .Values.location | default "eastus" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  kind: {{ .Values.cosmos.kind | default "GlobalDocumentDB" }}
+  databaseAccountOfferType: Standard
+  locations:
+    - locationName: {{ .Values.location | default "eastus" }}
+      failoverPriority: 0
+      isZoneRedundant: false
+  consistencyPolicy:
+    defaultConsistencyLevel: {{ .Values.cosmos.consistencyLevel | default "Session" }}
+  # Disable public network access for security (use private endpoint)
+  publicNetworkAccess: Disabled
+  # Enable automatic failover
+  enableAutomaticFailover: false
+  # Disable multi-region writes for single region
+  enableMultipleWriteLocations: false
+  # Backup policy
+  backupPolicy:
+    type: Continuous
+    continuousModeProperties:
+      tier: Continuous7Days

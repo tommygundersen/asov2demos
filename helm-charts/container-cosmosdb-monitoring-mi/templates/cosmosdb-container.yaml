@@ -1,0 +1,27 @@
+# ASO v2: Cosmos DB SQL Container
+apiVersion: documentdb.azure.com/v1api20231115
+kind: SqlDatabaseContainer
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}-{{ .Values.cosmos.databaseName }}-{{ .Values.cosmos.containerName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: {{ .Values.cosmos.containerName }}
+  owner:
+    name: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}-{{ .Values.cosmos.databaseName }}
+  resource:
+    id: {{ .Values.cosmos.containerName }}
+    partitionKey:
+      paths:
+        - {{ .Values.cosmos.partitionKeyPath | default "/id" }}
+      kind: Hash
+      version: 2
+    # Default indexing policy
+    indexingPolicy:
+      automatic: true
+      indexingMode: consistent
+      includedPaths:
+        - path: "/*"
+      excludedPaths:
+        - path: "/_etag/?"

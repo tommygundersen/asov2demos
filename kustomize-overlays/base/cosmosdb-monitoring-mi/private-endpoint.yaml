@@ -1,0 +1,23 @@
+# ASO v2: Private Endpoint for Cosmos DB
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpoint
+metadata:
+  name: ${APP_NAME}-cosmos-pe
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}-cosmos-pe
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}
+  subnet:
+    reference:
+      armId: ${PRIVATE_ENDPOINT_SUBNET_ID}
+  privateLinkServiceConnections:
+    - name: ${APP_NAME}-cosmos-connection
+      privateLinkServiceReference:
+        group: documentdb.azure.com
+        kind: DatabaseAccount
+        name: ${APP_NAME}-cosmos
+      groupIds:
+        - Sql

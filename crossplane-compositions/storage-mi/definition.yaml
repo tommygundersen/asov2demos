@@ -1,0 +1,131 @@
+# Crossplane CompositeResourceDefinition (XRD) for StorageApp
+# This defines the developer-facing API for creating storage applications
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xstorageapps.platform.example.com
+spec:
+  group: platform.example.com
+  names:
+    kind: XStorageApp
+    plural: xstorageapps
+  claimNames:
+    kind: StorageApp
+    plural: storageapps
+
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              description: "StorageApp configuration"
+              required:
+                - appName
+                - resourceGroup
+              properties:
+                # === Required Parameters ===
+                appName:
+                  type: string
+                  description: "Application name (used for naming all resources)"
+                  minLength: 3
+                  maxLength: 24
+                  pattern: "^[a-z][a-z0-9-]*[a-z0-9]$"
+
+                resourceGroup:
+                  type: string
+                  description: "Azure resource group name"
+                  minLength: 1
+
+                # === Optional Parameters ===
+                location:
+                  type: string
+                  description: "Azure region"
+                  default: "eastus"
+
+                port:
+                  type: integer
+                  description: "Application port"
+                  default: 8080
+                  minimum: 1
+                  maximum: 65535
+
+                blobContainerName:
+                  type: string
+                  description: "Name of the blob container"
+                  default: "data"
+
+                storageSku:
+                  type: string
+                  description: "Storage account SKU"
+                  enum:
+                    - Standard_LRS
+                    - Standard_GRS
+                    - Standard_ZRS
+                    - Premium_LRS
+                  default: "Standard_LRS"
+
+                image:
+                  type: object
+                  description: "Container image configuration"
+                  properties:
+                    repository:
+                      type: string
+                      default: "nginx"
+                    tag:
+                      type: string
+                      default: "1.25-alpine"
+
+                # === Infrastructure References ===
+                privateEndpointSubnetId:
+                  type: string
+                  description: "ARM resource ID of the subnet for private endpoints"
+
+                privateDnsZoneId:
+                  type: string
+                  description: "ARM resource ID of the blob private DNS zone"
+
+                oidcIssuerUrl:
+                  type: string
+                  description: "OIDC issuer URL for workload identity"
+
+                providerConfigRef:
+                  type: string
+                  description: "Name of the ProviderConfig for multi-tenant scenarios"
+                  default: "default"
+
+            status:
+              type: object
+              properties:
+                storageAccountName:
+                  type: string
+                  description: "Name of the created storage account"
+                blobEndpoint:
+                  type: string
+                  description: "Blob storage endpoint URL"
+                identityClientId:
+                  type: string
+                  description: "Client ID of the managed identity"
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+
+  # Connection secret keys that will be propagated to claims
+  connectionSecretKeys:
+    - blobEndpoint
+    - storageAccountName
+    - identityClientId

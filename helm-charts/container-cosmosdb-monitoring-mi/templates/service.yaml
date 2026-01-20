@@ -1,0 +1,17 @@
+# Kubernetes Service to expose the application
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.appName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "container-cosmosdb-monitoring.selectorLabels" . | nindent 4 }}

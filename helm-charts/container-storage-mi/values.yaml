@@ -1,0 +1,59 @@
+# Application configuration
+appName: "myapp"
+
+# Azure Resource Group where resources will be created
+resourceGroup: "rg-team-resources"
+
+# Port for the application
+port: 8080
+
+# Container image to deploy
+image:
+  repository: "nginx"
+  tag: "1.25-alpine"
+  pullPolicy: "IfNotPresent"
+
+# --- Optional overrides (defaults are derived from appName) ---
+
+# Storage account name (must be globally unique, 3-24 chars, lowercase alphanumeric only)
+# Default: derived from appName with random suffix
+storageAccountName: ""
+
+# Azure location for resources
+# Default: inherited from resource group
+location: ""
+
+# Storage account SKU
+storageSku: "Standard_LRS"
+
+# Storage account kind
+storageKind: "StorageV2"
+
+# Blob container name
+blobContainerName: "data"
+
+# --- Infrastructure values (auto-populated from ConfigMaps if not specified) ---
+# These values are typically set by the platform team via ConfigMaps.
+# Developers should NOT need to specify these.
+
+# ConfigMap names for infrastructure values
+infrastructure:
+  # Platform-wide ConfigMap (in kube-public namespace)
+  platformConfigMap: "aso-platform-config"
+  platformConfigMapNamespace: "kube-public"
+  # Team-specific ConfigMap (in team's namespace)
+  teamConfigMap: "aso-team-config"
+
+# Manual overrides (only use if ConfigMaps are not available)
+# Private endpoint subnet resource ID (full ARM resource ID)
+privateEndpointSubnetId: ""
+
+# Private DNS Zone resource ID for blob storage
+privateDnsZoneId: ""
+
+# OIDC Issuer URL for workload identity federation
+oidcIssuerUrl: ""
+
+# Kubernetes namespace for the service account
+# Default: Release namespace
+serviceAccountNamespace: ""

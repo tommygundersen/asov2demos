@@ -1,0 +1,27 @@
+# ASO v2: Azure Cosmos DB Account
+apiVersion: documentdb.azure.com/v1api20231115
+kind: DatabaseAccount
+metadata:
+  name: ${APP_NAME}-cosmos
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}-cosmos
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}
+  kind: GlobalDocumentDB
+  databaseAccountOfferType: Standard
+  locations:
+    - locationName: ${LOCATION}
+      failoverPriority: 0
+      isZoneRedundant: false
+  consistencyPolicy:
+    defaultConsistencyLevel: Session
+  publicNetworkAccess: Disabled
+  enableAutomaticFailover: false
+  enableMultipleWriteLocations: false
+  backupPolicy:
+    type: Continuous
+    continuousModeProperties:
+      tier: Continuous7Days

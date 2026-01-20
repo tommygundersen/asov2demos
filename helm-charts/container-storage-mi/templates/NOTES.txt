@@ -1,0 +1,63 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your Azure Storage resources are being provisioned:
+
+STORAGE ACCOUNT:
+  Name: {{ include "container-storage-mi.storageAccountName" . }}
+  Resource Group: {{ .Values.resourceGroup }}
+  Container: {{ .Values.blobContainerName }}
+
+MANAGED IDENTITY:
+  Name: {{ include "container-storage-mi.managedIdentityName" . }}
+  Service Account: {{ include "container-storage-mi.serviceAccountName" . }}
+
+KUBERNETES RESOURCES:
+  Namespace: {{ .Release.Namespace }}
+  Service Account: {{ include "container-storage-mi.serviceAccountName" . }}
+  Config Map: {{ .Values.appName }}-storage-config
+  Secret: {{ .Values.appName }}-storage-secrets (contains blob endpoint)
+
+{{- if .Values.privateEndpointSubnetId }}
+
+PRIVATE ENDPOINT:
+  Name: {{ include "container-storage-mi.privateEndpointName" . }}
+  Subnet: {{ .Values.privateEndpointSubnetId }}
+{{- else }}
+
+⚠️  WARNING: Private endpoint not configured!
+    Set 'privateEndpointSubnetId' and 'privateDnsZoneId' for private connectivity.
+{{- end }}
+
+{{- if .Values.oidcIssuerUrl }}
+
+WORKLOAD IDENTITY:
+  OIDC Issuer: {{ .Values.oidcIssuerUrl }}
+  Subject: system:serviceaccount:{{ include "container-storage-mi.serviceAccountNamespace" . }}:{{ include "container-storage-mi.serviceAccountName" . }}
+{{- else }}
+
+⚠️  WARNING: Workload identity not configured!
+    Set 'oidcIssuerUrl' to enable workload identity federation.
+{{- end }}
+
+TO CHECK STATUS:
+  kubectl get storageaccount,userassignedidentity,privateendpoint -n {{ .Release.Namespace }}
+
+TO USE IN YOUR APPLICATION:
+  1. Use the service account '{{ include "container-storage-mi.serviceAccountName" . }}' in your pod spec
+  2. Read storage config from ConfigMap '{{ .Values.containerName }}-storage-config'
+  3. Blob endpoint available in Secret '{{ .Values.containerName }}-storage-secrets'
+
+EXAMPLE POD SPEC:
+  spec:
+    serviceAccountName: {{ include "container-storage-mi.serviceAccountName" . }}
+    containers:
+    - name: {{ .Values.containerName }}
+      envFrom:
+      - configMapRef:
+          name: {{ .Values.containerName }}-storage-config
+      env:
+      - name: AZURE_STORAGE_BLOB_ENDPOINT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.containerName }}-storage-secrets
+            key: blobEndpoint

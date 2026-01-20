@@ -1,0 +1,31 @@
+{{- if .Values.monitoring.enabled }}
+# ASO v2: Application Insights Component
+apiVersion: insights.azure.com/v1api20200202
+kind: Component
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.appInsightsName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: {{ include "container-cosmosdb-monitoring.appInsightsName" . }}
+  location: {{ .Values.location | default "eastus" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  applicationType: web
+  kind: web
+  # Link to Log Analytics workspace
+  workspaceResourceReference:
+    group: operationalinsights.azure.com
+    kind: Workspace
+    name: {{ include "container-cosmosdb-monitoring.workspaceName" . }}
+  # Configure sampling
+  samplingPercentage: 100
+  # Disable IP masking for detailed traces (enable for privacy)
+  disableIpMasking: false
+  # Enable public network access for ingestion
+  publicNetworkAccessForIngestion: Enabled
+  publicNetworkAccessForQuery: Enabled
+  # Retention is inherited from Log Analytics workspace
+  retentionInDays: {{ .Values.monitoring.retentionDays | default 30 }}
+{{- end }}

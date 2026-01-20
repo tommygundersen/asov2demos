@@ -1,0 +1,13 @@
+# ASO v2: User-Assigned Managed Identity for Cosmos DB access
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: {{ include "container-cosmosdb-monitoring.identityName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  azureName: {{ include "container-cosmosdb-monitoring.identityName" . }}
+  location: {{ .Values.location | default "eastus" }}
+  owner:
+    name: {{ .Values.resourceGroup }}

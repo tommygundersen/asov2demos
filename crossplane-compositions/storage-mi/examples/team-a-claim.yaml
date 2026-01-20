@@ -1,0 +1,34 @@
+# Team A: Storage Application Claim
+#
+# This is a Crossplane Claim that requests a StorageApp.
+# Developers only need to specify minimal configuration.
+# All Azure resources (Storage, Identity, Private Endpoint) are created automatically.
+#
+apiVersion: platform.example.com/v1alpha1
+kind: StorageApp
+metadata:
+  name: nginx-demo
+  namespace: team-a
+spec:
+  # === Required ===
+  appName: nginx-demo
+  resourceGroup: rg-team-a
+
+  # === Optional overrides ===
+  # location: eastus
+  # port: 8080
+  # blobContainerName: data
+  # storageSku: Standard_LRS
+  # image:
+  #   repository: nginx
+  #   tag: "1.25-alpine"
+
+  # === Infrastructure (typically injected by Crossplane EnvironmentConfigs) ===
+  privateEndpointSubnetId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-platform/providers/Microsoft.Network/virtualNetworks/vnet-team-a/subnets/private-endpoints"
+  privateDnsZoneId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-platform/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net"
+  oidcIssuerUrl: "https://eastus.oic.prod-aks.azure.com/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000/"
+
+  # === Multi-tenant: Reference team-specific ProviderConfig ===
+  # providerConfigRef: team-a
+# Connection secret will be created automatically:
+# kubectl get secret nginx-demo-connection -n team-a

@@ -1,0 +1,23 @@
+# Role Assignment: Storage Blob Data Contributor
+# This grants the managed identity write access to the storage account
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: {{ .Values.appName }}-storage-blob-contributor
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: authorization
+spec:
+  owner:
+    name: {{ include "container-storage-mi.storageAccountName" . }}
+    group: storage.azure.com
+    kind: StorageAccount
+  # Storage Blob Data Contributor role
+  # Allows read, write, and delete access to Azure Storage blob containers and data
+  roleDefinitionReference:
+    armId: /providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe
+  principalIdFromConfig:
+    name: {{ .Values.appName }}-identity-config
+    key: principalId
+  principalType: ServicePrincipal

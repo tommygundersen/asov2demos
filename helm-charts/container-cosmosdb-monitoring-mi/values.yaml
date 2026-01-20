@@ -1,0 +1,80 @@
+# Application configuration
+appName: "myapp"
+
+# Azure Resource Group where resources will be created
+resourceGroup: "rg-team-resources"
+
+# Port for the application
+port: 8080
+
+# Container image to deploy
+image:
+  repository: "nginx"
+  tag: "1.25-alpine"
+  pullPolicy: "IfNotPresent"
+
+# --- Optional overrides (defaults are derived from appName) ---
+
+# Cosmos DB account name (must be globally unique, 3-44 chars, lowercase alphanumeric and hyphens)
+# Default: derived from appName with random suffix
+cosmosAccountName: ""
+
+# Azure location for resources
+# Default: inherited from resource group
+location: ""
+
+# Cosmos DB configuration
+cosmos:
+  # API type: sql, mongodb, cassandra, gremlin, table
+  kind: "GlobalDocumentDB" # SQL API
+  # Consistency level: Strong, BoundedStaleness, Session, ConsistentPrefix, Eventual
+  consistencyLevel: "Session"
+  # Database name
+  databaseName: "appdb"
+  # Container/collection name
+  containerName: "items"
+  # Partition key path
+  partitionKeyPath: "/id"
+  # Throughput (RU/s) - set to 0 for serverless
+  throughput: 400
+
+# Application Insights configuration
+monitoring:
+  enabled: true
+  # Application Insights name (auto-generated if empty)
+  appInsightsName: ""
+  # Log Analytics workspace name (auto-generated if empty)
+  workspaceName: ""
+  # Retention in days
+  retentionDays: 30
+  # Enable auto-instrumentation via OpenTelemetry
+  autoInstrumentation:
+    enabled: true
+    # Supported: java, nodejs, python, dotnet
+    language: "nodejs"
+
+# --- Infrastructure values (auto-populated from ConfigMaps if not specified) ---
+# These values are typically set by the platform team via ConfigMaps.
+# Developers should NOT need to specify these.
+
+# ConfigMap names for infrastructure values
+infrastructure:
+  # Platform-wide ConfigMap (in kube-public namespace)
+  platformConfigMap: "aso-platform-config"
+  platformConfigMapNamespace: "kube-public"
+  # Team-specific ConfigMap (in team's namespace)
+  teamConfigMap: "aso-team-config"
+
+# Manual overrides (only use if ConfigMaps are not available)
+# Private endpoint subnet resource ID (full ARM resource ID)
+privateEndpointSubnetId: ""
+
+# Private DNS Zone resource ID for Cosmos DB
+privateDnsZoneId: ""
+
+# OIDC Issuer URL for workload identity federation
+oidcIssuerUrl: ""
+
+# Kubernetes namespace for the service account
+# Default: Release namespace
+serviceAccountNamespace: ""

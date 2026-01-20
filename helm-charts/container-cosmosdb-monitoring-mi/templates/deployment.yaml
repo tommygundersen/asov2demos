@@ -1,0 +1,92 @@
+# Kubernetes Deployment with Workload Identity and OpenTelemetry auto-instrumentation
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.appName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "container-cosmosdb-monitoring.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "container-cosmosdb-monitoring.selectorLabels" . | nindent 8 }}
+        # Workload Identity label (required)
+        azure.workload.identity/use: "true"
+      annotations:
+        # OpenTelemetry auto-instrumentation annotations
+        {{- if and .Values.monitoring.enabled .Values.monitoring.autoInstrumentation.enabled }}
+        {{- include "container-cosmosdb-monitoring.otelAnnotation" . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "container-cosmosdb-monitoring.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.appName }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            # Cosmos DB endpoint - retrieved from ASO resource status
+            - name: COSMOS_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}
+                  key: documentEndpoint
+                  optional: true
+            # Cosmos DB database name
+            - name: COSMOS_DATABASE
+              value: {{ .Values.cosmos.databaseName | quote }}
+            # Cosmos DB container name
+            - name: COSMOS_CONTAINER
+              value: {{ .Values.cosmos.containerName | quote }}
+            # Azure Client ID for SDK authentication (workload identity)
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "container-cosmosdb-monitoring.identityName" . }}
+                  key: clientId
+                  optional: true
+            {{- if .Values.monitoring.enabled }}
+            # Application Insights connection string
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "container-cosmosdb-monitoring.appInsightsName" . }}
+                  key: connectionString
+                  optional: true
+            # OpenTelemetry settings
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.appName | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace={{ .Release.Namespace }},service.instance.id=$(POD_NAME)"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- end }}
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10

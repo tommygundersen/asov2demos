@@ -1,0 +1,25 @@
+# ASO v2: Cosmos DB SQL Container
+apiVersion: documentdb.azure.com/v1api20231115
+kind: SqlDatabaseContainer
+metadata:
+  name: ${APP_NAME}-${COSMOS_DATABASE_NAME}-${COSMOS_CONTAINER_NAME}
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${COSMOS_CONTAINER_NAME}
+  owner:
+    name: ${APP_NAME}-${COSMOS_DATABASE_NAME}
+  resource:
+    id: ${COSMOS_CONTAINER_NAME}
+    partitionKey:
+      paths:
+        - ${COSMOS_PARTITION_KEY}
+      kind: Hash
+      version: 2
+    indexingPolicy:
+      automatic: true
+      indexingMode: consistent
+      includedPaths:
+        - path: "/*"
+      excludedPaths:
+        - path: "/_etag/?"

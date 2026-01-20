@@ -1,0 +1,16 @@
+# ASO v2: Role Assignment for Storage Blob Data Contributor
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: ${APP_NAME}-blob-role
+  labels:
+    app: ${APP_NAME}
+spec:
+  owner:
+    name: ${APP_NAME}sa
+  # Storage Blob Data Contributor
+  roleDefinitionReference:
+    armId: /providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe
+  principalIdFromConfig:
+    name: ${APP_NAME}-identity
+    key: principalId

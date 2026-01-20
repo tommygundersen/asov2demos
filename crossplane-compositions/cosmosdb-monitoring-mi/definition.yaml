@@ -1,0 +1,181 @@
+# Crossplane CompositeResourceDefinition (XRD) for CosmosApp
+# This defines the developer-facing API for creating Cosmos DB applications with monitoring
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xcosmosapps.platform.example.com
+spec:
+  group: platform.example.com
+  names:
+    kind: XCosmosApp
+    plural: xcosmosapps
+  claimNames:
+    kind: CosmosApp
+    plural: cosmosapps
+
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              description: "CosmosApp configuration"
+              required:
+                - appName
+                - resourceGroup
+              properties:
+                # === Required Parameters ===
+                appName:
+                  type: string
+                  description: "Application name (used for naming all resources)"
+                  minLength: 3
+                  maxLength: 44
+                  pattern: "^[a-z][a-z0-9-]*[a-z0-9]$"
+
+                resourceGroup:
+                  type: string
+                  description: "Azure resource group name"
+                  minLength: 1
+
+                # === Optional Parameters ===
+                location:
+                  type: string
+                  description: "Azure region"
+                  default: "eastus"
+
+                port:
+                  type: integer
+                  description: "Application port"
+                  default: 8080
+                  minimum: 1
+                  maximum: 65535
+
+                image:
+                  type: object
+                  description: "Container image configuration"
+                  properties:
+                    repository:
+                      type: string
+                      default: "nginx"
+                    tag:
+                      type: string
+                      default: "1.25-alpine"
+
+                # === Cosmos DB Configuration ===
+                cosmos:
+                  type: object
+                  description: "Cosmos DB configuration"
+                  properties:
+                    databaseName:
+                      type: string
+                      description: "Database name"
+                      default: "appdb"
+                    containerName:
+                      type: string
+                      description: "Container/collection name"
+                      default: "items"
+                    partitionKeyPath:
+                      type: string
+                      description: "Partition key path"
+                      default: "/id"
+                    throughput:
+                      type: integer
+                      description: "Provisioned throughput (RU/s)"
+                      default: 400
+                      minimum: 400
+                    consistencyLevel:
+                      type: string
+                      description: "Consistency level"
+                      enum:
+                        - Strong
+                        - BoundedStaleness
+                        - Session
+                        - ConsistentPrefix
+                        - Eventual
+                      default: "Session"
+
+                # === Monitoring Configuration ===
+                monitoring:
+                  type: object
+                  description: "Application Insights configuration"
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    retentionDays:
+                      type: integer
+                      default: 30
+                      minimum: 30
+                      maximum: 730
+                    autoInstrumentation:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        language:
+                          type: string
+                          enum:
+                            - java
+                            - nodejs
+                            - python
+                            - dotnet
+                          default: "nodejs"
+
+                # === Infrastructure References ===
+                privateEndpointSubnetId:
+                  type: string
+                  description: "ARM resource ID of the subnet for private endpoints"
+
+                privateDnsZoneId:
+                  type: string
+                  description: "ARM resource ID of the Cosmos DB private DNS zone"
+
+                oidcIssuerUrl:
+                  type: string
+                  description: "OIDC issuer URL for workload identity"
+
+                providerConfigRef:
+                  type: string
+                  description: "Name of the ProviderConfig for multi-tenant scenarios"
+                  default: "default"
+
+            status:
+              type: object
+              properties:
+                cosmosAccountName:
+                  type: string
+                  description: "Name of the created Cosmos DB account"
+                cosmosEndpoint:
+                  type: string
+                  description: "Cosmos DB endpoint URL"
+                appInsightsName:
+                  type: string
+                  description: "Name of the Application Insights resource"
+                identityClientId:
+                  type: string
+                  description: "Client ID of the managed identity"
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+
+  # Connection secret keys that will be propagated to claims
+  connectionSecretKeys:
+    - cosmosEndpoint
+    - cosmosAccountName
+    - identityClientId
+    - appInsightsConnectionString

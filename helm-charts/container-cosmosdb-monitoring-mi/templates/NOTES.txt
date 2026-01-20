@@ -1,0 +1,77 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    Cosmos DB + Monitoring Chart Deployed!                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Application: {{ .Values.appName }}
+Namespace:   {{ .Release.Namespace }}
+Resource Group: {{ .Values.resourceGroup }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🗄️  COSMOS DB RESOURCES CREATED:
+   • Account:    {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}
+   • Database:   {{ .Values.cosmos.databaseName }}
+   • Container:  {{ .Values.cosmos.containerName }}
+   • API:        {{ .Values.cosmos.kind }}
+
+🔒 SECURITY (Workload Identity):
+   • Managed Identity: {{ include "container-cosmosdb-monitoring.identityName" . }}
+   • Service Account:  {{ include "container-cosmosdb-monitoring.serviceAccountName" . }}
+   • Role: Cosmos DB Built-in Data Contributor
+
+🌐 PRIVATE NETWORKING:
+   • Private Endpoint: {{ include "container-cosmosdb-monitoring.privateEndpointName" . }}
+   • Public Access: Disabled
+
+{{- if .Values.monitoring.enabled }}
+
+📊 MONITORING:
+   • Application Insights: {{ include "container-cosmosdb-monitoring.appInsightsName" . }}
+   • Log Analytics:        {{ include "container-cosmosdb-monitoring.workspaceName" . }}
+   • Retention:            {{ .Values.monitoring.retentionDays }} days
+   {{- if .Values.monitoring.autoInstrumentation.enabled }}
+   • Auto-Instrumentation: Enabled ({{ .Values.monitoring.autoInstrumentation.language }})
+   {{- end }}
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 CHECK RESOURCE STATUS:
+
+  # View all ASO resources
+  kubectl get databaseaccounts,sqldatabases,sqldatabasecontainers,privateendpoints,components -n {{ .Release.Namespace }}
+
+  # Check Cosmos DB account status
+  kubectl describe databaseaccount {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }} -n {{ .Release.Namespace }}
+
+  # Check Application Insights status
+  kubectl describe component {{ include "container-cosmosdb-monitoring.appInsightsName" . }} -n {{ .Release.Namespace }}
+
+  # View deployment logs
+  kubectl logs -l app.kubernetes.io/name={{ include "container-cosmosdb-monitoring.name" . }} -n {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 ENVIRONMENT VARIABLES AVAILABLE IN YOUR APP:
+   • COSMOS_ENDPOINT     - Cosmos DB account endpoint
+   • COSMOS_DATABASE     - Database name
+   • COSMOS_CONTAINER    - Container name
+   • AZURE_CLIENT_ID     - Managed identity client ID (for SDK auth)
+{{- if .Values.monitoring.enabled }}
+   • APPLICATIONINSIGHTS_CONNECTION_STRING - App Insights connection
+   • OTEL_SERVICE_NAME   - OpenTelemetry service name
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  NOTES:
+   • ASO will take 2-5 minutes to provision Azure resources
+   • The app will restart once ConfigMaps with credentials are ready
+   • Use Azure SDK with DefaultAzureCredential for authentication
+   • Cosmos DB is accessible only via private endpoint
+
+{{- if .Values.monitoring.autoInstrumentation.enabled }}
+   • Auto-instrumentation requires OpenTelemetry Operator installed in cluster
+   • Install with: kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
+{{- end }}
+

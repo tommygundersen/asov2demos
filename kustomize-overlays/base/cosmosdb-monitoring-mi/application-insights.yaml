@@ -1,0 +1,23 @@
+# ASO v2: Application Insights
+apiVersion: insights.azure.com/v1api20200202
+kind: Component
+metadata:
+  name: ${APP_NAME}-appinsights
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}-appinsights
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}
+  applicationType: web
+  kind: web
+  workspaceResourceReference:
+    group: operationalinsights.azure.com
+    kind: Workspace
+    name: ${APP_NAME}-logs
+  samplingPercentage: 100
+  disableIpMasking: false
+  publicNetworkAccessForIngestion: Enabled
+  publicNetworkAccessForQuery: Enabled
+  retentionInDays: ${MONITORING_RETENTION_DAYS}

@@ -1,0 +1,23 @@
+# ASO v2: Private Endpoint for Storage Account
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpoint
+metadata:
+  name: ${APP_NAME}-blob-pe
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}-blob-pe
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}
+  subnet:
+    reference:
+      armId: ${PRIVATE_ENDPOINT_SUBNET_ID}
+  privateLinkServiceConnections:
+    - name: ${APP_NAME}-blob-connection
+      privateLinkServiceReference:
+        group: storage.azure.com
+        kind: StorageAccount
+        name: ${APP_NAME}sa
+      groupIds:
+        - blob

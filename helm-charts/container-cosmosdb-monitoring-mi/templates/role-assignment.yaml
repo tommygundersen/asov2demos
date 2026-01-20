@@ -1,0 +1,22 @@
+# ASO v2: Role Assignment for Cosmos DB Data Contributor
+# Role: Cosmos DB Built-in Data Contributor
+# Role ID: 00000000-0000-0000-0000-000000000002
+apiVersion: documentdb.azure.com/v1api20231115
+kind: SqlRoleAssignment
+metadata:
+  name: {{ .Values.appName }}-cosmos-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-cosmosdb-monitoring.labels" . | nindent 4 }}
+spec:
+  owner:
+    name: {{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}
+  # Cosmos DB Built-in Data Contributor role
+  roleDefinitionId:
+    armId: /subscriptions/{{ "{{" }} .subscription {{ "}}" }}/resourceGroups/{{ .Values.resourceGroup }}/providers/Microsoft.DocumentDB/databaseAccounts/{{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002
+  # Principal ID of the managed identity (retrieved from status)
+  principalIdFromConfig:
+    name: {{ include "container-cosmosdb-monitoring.identityName" . }}
+    key: principalId
+  # Scope to the database account
+  scope: /subscriptions/{{ "{{" }} .subscription {{ "}}" }}/resourceGroups/{{ .Values.resourceGroup }}/providers/Microsoft.DocumentDB/databaseAccounts/{{ include "container-cosmosdb-monitoring.cosmosAccountName" . }}

@@ -1,0 +1,12 @@
+# ASO v2: User-Assigned Managed Identity
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: ${APP_NAME}-identity
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}-identity
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}

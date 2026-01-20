@@ -1,0 +1,42 @@
+# Team A Application - Storage with Private Link and Workload Identity
+#
+# Developers only need to specify:
+#   - appName: unique name for the application (used for naming Azure/K8s resources)
+#   - resourceGroup: Azure resource group to create resources in
+#
+# All infrastructure values (OIDC issuer, DNS zones, subnet IDs) are
+# automatically populated from platform and team ConfigMaps.
+#
+# The container image defaults to nginx:1.25-alpine (can be overridden).
+#
+# NOTE: The HelmRepository is in flux-system namespace because it's a cluster-wide
+# shared resource created by the platform team. See Step 12 of the installation guide.
+#
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: nginx-demo
+  namespace: team-a
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: container-storage-mi
+      version: "0.x" # Auto-update within 0.x range
+      sourceRef:
+        kind: HelmRepository
+        name: platform-charts # Defined in flux-system by platform team
+        namespace: flux-system # Flux's shared resource namespace
+      interval: 1m
+  values:
+    # === Required values (developer must specify) ===
+    appName: nginx-demo
+    resourceGroup: rg-team-a
+
+    # === Optional overrides ===
+    # port: 80                        # Default: 8080
+    # blobContainerName: app-data     # Default: data
+    # storageSku: Standard_GRS        # Default: Standard_LRS
+    # image:
+    #   repository: myregistry/myapp  # Default: nginx
+    #   tag: "v1.0.0"                 # Default: 1.25-alpine

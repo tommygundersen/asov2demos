@@ -1,0 +1,69 @@
+# Team B Cosmos DB App Overlay
+# This overlay provides team-specific configuration for the cosmosdb-monitoring-mi base
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: team-b-cosmosdb-app
+
+namespace: team-b
+
+resources:
+  - ../../base/cosmosdb-monitoring-mi
+
+# Configuration values for this deployment
+configMapGenerator:
+  - name: app-config
+    literals:
+      # Application identity
+      - APP_NAME=orders-api
+      - RESOURCE_GROUP=rg-team-b
+      - LOCATION=eastus
+      - NAMESPACE=team-b
+
+      # Application settings
+      - PORT=3000
+      - IMAGE_REPO=mcr.microsoft.com/azure-samples/cosmos-dotnet-quickstart
+      - IMAGE_TAG=latest
+
+      # Cosmos DB settings
+      - COSMOS_DATABASE_NAME=ordersdb
+      - COSMOS_CONTAINER_NAME=orders
+      - COSMOS_PARTITION_KEY=/customerId
+      - COSMOS_THROUGHPUT=400
+
+      # Monitoring settings
+      - MONITORING_RETENTION_DAYS=30
+      - OTEL_LANGUAGE=dotnet
+
+      # Placeholders for dynamic values
+      - IDENTITY_CLIENT_ID=placeholder
+      - APPINSIGHTS_CONNECTION_STRING=placeholder
+      - COSMOS_ROLE_DEFINITION_ID=placeholder
+      - COSMOS_ACCOUNT_SCOPE=placeholder
+    options:
+      disableNameSuffixHash: true
+# For Flux GitOps, use postBuild substitution:
+#
+# apiVersion: kustomize.toolkit.fluxcd.io/v1
+# kind: Kustomization
+# metadata:
+#   name: team-b-cosmosdb-app
+#   namespace: flux-system
+# spec:
+#   path: ./kustomize-overlays/overlays/team-b/cosmosdb-app
+#   postBuild:
+#     substitute:
+#       APP_NAME: orders-api
+#       RESOURCE_GROUP: rg-team-b
+#       NAMESPACE: team-b
+#       COSMOS_DATABASE_NAME: ordersdb
+#       COSMOS_CONTAINER_NAME: orders
+#       COSMOS_PARTITION_KEY: /customerId
+#       COSMOS_THROUGHPUT: "400"
+#       OTEL_LANGUAGE: dotnet
+#     substituteFrom:
+#       - kind: ConfigMap
+#         name: aso-platform-config   # OIDC_ISSUER_URL
+#       - kind: ConfigMap
+#         name: aso-team-config       # PRIVATE_ENDPOINT_SUBNET_ID, COSMOS_DNS_ZONE_ID

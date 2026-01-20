@@ -1,0 +1,64 @@
+# Team-B: Cosmos DB API Application with Monitoring
+# This HelmRelease deploys an application with:
+# - Azure Cosmos DB (database + container)
+# - Application Insights with auto-instrumentation
+# - Managed Identity with workload identity
+# - Private endpoint connectivity
+#
+# Developers only need to specify appName and resourceGroup.
+# All infrastructure details are auto-discovered from ConfigMaps.
+#
+# NOTE: The HelmRepository is in flux-system namespace because it's a cluster-wide
+# shared resource created by the platform team. See Step 12 of the installation guide.
+#
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: orders-api
+  namespace: team-b
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: container-cosmosdb-monitoring-mi
+      sourceRef:
+        kind: HelmRepository
+        name: platform-charts # Defined in flux-system by platform team
+        namespace: flux-system # Flux's shared resource namespace
+      # Semver range: auto-update to latest 0.x.x
+      version: "0.x"
+  values:
+    # === REQUIRED VALUES ===
+    # Application name (used for naming all Azure resources)
+    appName: orders-api
+
+    # Resource group where Azure resources will be created
+    resourceGroup: rg-team-b
+
+    # === OPTIONAL: Application Settings ===
+    port: 3000
+
+    image:
+      repository: "mcr.microsoft.com/azure-samples/cosmos-dotnet-quickstart"
+      tag: "latest"
+
+    # === OPTIONAL: Cosmos DB Settings ===
+    cosmos:
+      databaseName: "ordersdb"
+      containerName: "orders"
+      partitionKeyPath: "/customerId"
+      throughput: 400
+
+    # === OPTIONAL: Monitoring Settings ===
+    monitoring:
+      enabled: true
+      retentionDays: 30
+      autoInstrumentation:
+        enabled: true
+        language: "dotnet"
+
+    # === INFRASTRUCTURE (auto-discovered from ConfigMaps) ===
+    # No need to specify these - they come from:
+    # - kube-public/aso-platform-config (oidcIssuerUrl)
+    # - team-b/aso-team-config (privateEndpointSubnetId, cosmosDnsZoneId)

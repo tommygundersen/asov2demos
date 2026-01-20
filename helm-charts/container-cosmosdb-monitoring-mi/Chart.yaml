@@ -1,0 +1,17 @@
+apiVersion: v2
+name: container-cosmosdb-monitoring-mi
+description: A Helm chart for deploying applications with Azure Cosmos DB, Application Insights monitoring, and Managed Identity using ASO v2
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - azure
+  - cosmosdb
+  - application-insights
+  - monitoring
+  - managed-identity
+  - workload-identity
+  - private-endpoint
+  - aso
+maintainers:
+  - name: Platform Team

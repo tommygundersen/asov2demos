@@ -1,0 +1,40 @@
+# Base kustomization for Storage with Managed Identity
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: storage-mi-base
+
+resources:
+  - managed-identity.yaml
+  - federated-credential.yaml
+  - storage-account.yaml
+  - blob-container.yaml
+  - role-assignment.yaml
+  - private-endpoint.yaml
+  - dns-zone-group.yaml
+  - service-account.yaml
+  - deployment.yaml
+  - service.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  platform.example.com/component: storage-mi
+# These are placeholder values - overlays should provide actual values
+# via replacements or Flux postBuild substitution
+#
+# Required variables (must be provided by overlay):
+#   - APP_NAME: Application name
+#   - RESOURCE_GROUP: Azure resource group
+#   - LOCATION: Azure region
+#   - OIDC_ISSUER_URL: AKS OIDC issuer
+#   - PRIVATE_ENDPOINT_SUBNET_ID: Subnet for private endpoints
+#   - BLOB_DNS_ZONE_ID: Private DNS zone for blob storage
+#
+# Optional variables (have defaults):
+#   - PORT: Application port (default: 8080)
+#   - IMAGE_REPO: Container image (default: nginx)
+#   - IMAGE_TAG: Image tag (default: 1.25-alpine)
+#   - STORAGE_SKU: Storage SKU (default: Standard_LRS)
+#   - BLOB_CONTAINER_NAME: Blob container (default: data)

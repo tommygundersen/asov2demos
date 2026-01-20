@@ -1,0 +1,15 @@
+# ASO v2: Cosmos DB SQL Database
+apiVersion: documentdb.azure.com/v1api20231115
+kind: SqlDatabase
+metadata:
+  name: ${APP_NAME}-${COSMOS_DATABASE_NAME}
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${COSMOS_DATABASE_NAME}
+  owner:
+    name: ${APP_NAME}-cosmos
+  resource:
+    id: ${COSMOS_DATABASE_NAME}
+  options:
+    throughput: ${COSMOS_THROUGHPUT}

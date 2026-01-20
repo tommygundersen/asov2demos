@@ -1,0 +1,51 @@
+# Team A Storage App Overlay
+# This overlay provides team-specific configuration for the storage-mi base
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: team-a-storage-app
+
+namespace: team-a
+
+resources:
+  - ../../base/storage-mi
+
+# Configuration values for this deployment
+# These will be substituted into the base templates
+configMapGenerator:
+  - name: app-config
+    literals:
+      - APP_NAME=nginx-demo
+      - RESOURCE_GROUP=rg-team-a
+      - LOCATION=eastus
+      - NAMESPACE=team-a
+      - PORT=8080
+      - IMAGE_REPO=nginx
+      - IMAGE_TAG=1.25-alpine
+      - STORAGE_SKU=Standard_LRS
+      - BLOB_CONTAINER_NAME=data
+      # Identity client ID - will be available after ASO creates the identity
+      # In practice, use Flux postBuild.substituteFrom for dynamic values
+      - IDENTITY_CLIENT_ID=placeholder
+    options:
+      disableNameSuffixHash: true
+# For Flux GitOps, use postBuild substitution instead of configMapGenerator:
+#
+# apiVersion: kustomize.toolkit.fluxcd.io/v1
+# kind: Kustomization
+# metadata:
+#   name: team-a-storage-app
+#   namespace: flux-system
+# spec:
+#   path: ./kustomize-overlays/overlays/team-a/storage-app
+#   postBuild:
+#     substitute:
+#       APP_NAME: nginx-demo
+#       RESOURCE_GROUP: rg-team-a
+#       NAMESPACE: team-a
+#     substituteFrom:
+#       - kind: ConfigMap
+#         name: aso-platform-config   # OIDC_ISSUER_URL, DNS zones
+#       - kind: ConfigMap
+#         name: aso-team-config       # PRIVATE_ENDPOINT_SUBNET_ID

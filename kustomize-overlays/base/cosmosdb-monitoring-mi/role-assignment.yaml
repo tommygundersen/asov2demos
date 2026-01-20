@@ -1,0 +1,17 @@
+# ASO v2: Role Assignment for Cosmos DB Data Contributor
+apiVersion: documentdb.azure.com/v1api20231115
+kind: SqlRoleAssignment
+metadata:
+  name: ${APP_NAME}-cosmos-role
+  labels:
+    app: ${APP_NAME}
+spec:
+  owner:
+    name: ${APP_NAME}-cosmos
+  # Cosmos DB Built-in Data Contributor role
+  roleDefinitionId:
+    armId: ${COSMOS_ROLE_DEFINITION_ID}
+  principalIdFromConfig:
+    name: ${APP_NAME}-identity
+    key: principalId
+  scope: ${COSMOS_ACCOUNT_SCOPE}

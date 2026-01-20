@@ -1,0 +1,23 @@
+# ASO v2: Azure Storage Account
+apiVersion: storage.azure.com/v1api20230101
+kind: StorageAccount
+metadata:
+  name: ${APP_NAME}sa
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}sa
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}
+  kind: StorageV2
+  sku:
+    name: ${STORAGE_SKU}
+  accessTier: Hot
+  allowBlobPublicAccess: false
+  allowSharedKeyAccess: false
+  minimumTlsVersion: TLS1_2
+  publicNetworkAccess: Disabled
+  networkAcls:
+    defaultAction: Deny
+    bypass: None

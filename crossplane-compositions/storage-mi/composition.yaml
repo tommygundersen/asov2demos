@@ -1,0 +1,394 @@
+# Crossplane Composition for StorageApp
+# Maps the StorageApp API to underlying Azure and Kubernetes resources
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: storageapp-azure
+  labels:
+    crossplane.io/xrd: xstorageapps.platform.example.com
+    provider: azure
+spec:
+  compositeTypeRef:
+    apiVersion: platform.example.com/v1alpha1
+    kind: XStorageApp
+
+  # Write connection details to a secret
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ============================================================
+    # 1. User-Assigned Managed Identity
+    # ============================================================
+    - name: managed-identity
+      base:
+        apiVersion: managedidentity.azure.upbound.io/v1beta1
+        kind: UserAssignedIdentity
+        spec:
+          forProvider:
+            location: eastus
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-identity"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceGroup
+          toFieldPath: spec.forProvider.resourceGroupName
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.location
+          toFieldPath: spec.forProvider.location
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+        # Export identity client ID to status
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.clientId
+          toFieldPath: status.identityClientId
+      connectionDetails:
+        - name: identityClientId
+          fromFieldPath: status.atProvider.clientId
+
+    # ============================================================
+    # 2. Federated Identity Credential
+    # ============================================================
+    - name: federated-credential
+      base:
+        apiVersion: managedidentity.azure.upbound.io/v1beta1
+        kind: FederatedIdentityCredential
+        spec:
+          forProvider:
+            audience:
+              - api://AzureADTokenExchange
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-federated"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceGroup
+          toFieldPath: spec.forProvider.resourceGroupName
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.parentIdSelector.matchLabels[appName]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.oidcIssuerUrl
+          toFieldPath: spec.forProvider.issuer
+        # Construct the subject: system:serviceaccount:<namespace>:<sa-name>
+        - type: CombineFromComposite
+          combine:
+            variables:
+              - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+              - fromFieldPath: spec.appName
+            strategy: string
+            string:
+              fmt: "system:serviceaccount:%s:%s-sa"
+          toFieldPath: spec.forProvider.subject
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+
+    # ============================================================
+    # 3. Storage Account
+    # ============================================================
+    - name: storage-account
+      base:
+        apiVersion: storage.azure.upbound.io/v1beta1
+        kind: Account
+        spec:
+          forProvider:
+            accountTier: Standard
+            accountReplicationType: LRS
+            accountKind: StorageV2
+            minTlsVersion: TLS1_2
+            publicNetworkAccessEnabled: false
+            networkRules:
+              - defaultAction: Deny
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%ssa"
+                type: Format
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceGroup
+          toFieldPath: spec.forProvider.resourceGroupName
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.location
+          toFieldPath: spec.forProvider.location
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.storageSku
+          toFieldPath: spec.forProvider.accountReplicationType
+          transforms:
+            - type: string
+              string:
+                type: TrimPrefix
+                trim: "Standard_"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+        # Export storage account name to status
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: status.storageAccountName
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.primaryBlobEndpoint
+          toFieldPath: status.blobEndpoint
+      connectionDetails:
+        - name: storageAccountName
+          fromFieldPath: metadata.name
+        - name: blobEndpoint
+          fromFieldPath: status.atProvider.primaryBlobEndpoint
+
+    # ============================================================
+    # 4. Blob Container
+    # ============================================================
+    - name: blob-container
+      base:
+        apiVersion: storage.azure.upbound.io/v1beta1
+        kind: Container
+        spec:
+          forProvider:
+            containerAccessType: private
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.blobContainerName
+          toFieldPath: metadata.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.storageAccountNameSelector.matchLabels[appName]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+
+    # ============================================================
+    # 5. Role Assignment (Storage Blob Data Contributor)
+    # ============================================================
+    - name: role-assignment
+      base:
+        apiVersion: authorization.azure.upbound.io/v1beta1
+        kind: RoleAssignment
+        spec:
+          forProvider:
+            # Storage Blob Data Contributor
+            roleDefinitionName: Storage Blob Data Contributor
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-blob-role"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.principalIdSelector.matchLabels[appName]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.scopeSelector.matchLabels[appName]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+
+    # ============================================================
+    # 6. Private Endpoint
+    # ============================================================
+    - name: private-endpoint
+      base:
+        apiVersion: network.azure.upbound.io/v1beta1
+        kind: PrivateEndpoint
+        spec:
+          forProvider:
+            privateServiceConnection:
+              - name: storage-connection
+                isManualConnection: false
+                subresourceNames:
+                  - blob
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-blob-pe"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceGroup
+          toFieldPath: spec.forProvider.resourceGroupName
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.location
+          toFieldPath: spec.forProvider.location
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.privateEndpointSubnetId
+          toFieldPath: spec.forProvider.subnetId
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.privateServiceConnection[0].privateConnectionResourceIdSelector.matchLabels[appName]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+
+    # ============================================================
+    # 7. Private DNS Zone Group
+    # ============================================================
+    - name: dns-zone-group
+      base:
+        apiVersion: network.azure.upbound.io/v1beta1
+        kind: PrivateDNSZoneGroup
+        spec:
+          forProvider:
+            privateDnsZoneConfig:
+              - name: blob-dns
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-dns-group"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.privateEndpointIdSelector.matchLabels[appName]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.privateDnsZoneId
+          toFieldPath: spec.forProvider.privateDnsZoneConfig[0].privateDnsZoneId
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.providerConfigRef
+          toFieldPath: spec.providerConfigRef.name
+
+    # ============================================================
+    # 8. Kubernetes Service Account (via provider-kubernetes)
+    # ============================================================
+    - name: service-account
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                annotations: {}
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-sa"
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+        # Set workload identity annotation
+        - type: CombineFromComposite
+          combine:
+            variables:
+              - fromFieldPath: status.identityClientId
+            strategy: string
+            string:
+              fmt: "%s"
+          toFieldPath: spec.forProvider.manifest.metadata.annotations[azure.workload.identity/client-id]
+
+    # ============================================================
+    # 9. Kubernetes Deployment
+    # ============================================================
+    - name: deployment
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              spec:
+                replicas: 1
+                template:
+                  metadata:
+                    labels:
+                      azure.workload.identity/use: "true"
+                  spec:
+                    containers:
+                      - name: app
+                        resources:
+                          limits:
+                            cpu: "500m"
+                            memory: "256Mi"
+                          requests:
+                            cpu: "100m"
+                            memory: "128Mi"
+                        env:
+                          - name: AZURE_STORAGE_ACCOUNT
+                            value: ""
+                          - name: AZURE_STORAGE_BLOB_ENDPOINT
+                            value: ""
+                          - name: AZURE_CLIENT_ID
+                            value: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.manifest.metadata.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels.app
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.manifest.spec.template.metadata.labels.app
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.appName
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.serviceAccountName
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-sa"
+        # Image configuration
+        - type: CombineFromComposite
+          combine:
+            variables:
+              - fromFieldPath: spec.image.repository
+              - fromFieldPath: spec.image.tag
+            strategy: string
+            string:
+              fmt: "%s:%s"
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].image
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.port
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].ports[0].containerPort
+        # Environment variables from status
+        - type: FromCompositeFieldPath
+          fromFieldPath: status.storageAccountName
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].value
+        - type: FromCompositeFieldPath
+          fromFieldPath: status.blobEndpoint
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[1].value
+        - type: FromCompositeFieldPath
+          fromFieldPath: status.identityClientId
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[2].value

@@ -1,0 +1,53 @@
+apiVersion: storage.azure.com/v1api20230101
+kind: StorageAccount
+metadata:
+  name: {{ include "container-storage-mi.storageAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  location: {{ .Values.location | default "swedencentral" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  sku:
+    name: {{ .Values.storageSku }}
+  kind: {{ .Values.storageKind }}
+  accessTier: Hot
+  allowBlobPublicAccess: false
+  allowSharedKeyAccess: false
+  minimumTlsVersion: TLS1_2
+  publicNetworkAccess: Disabled
+  networkAcls:
+    defaultAction: Deny
+    bypass: AzureServices
+  operatorSpec:
+    secrets:
+      blobEndpoint:
+        name: {{ .Values.appName }}-storage-secrets
+        key: blobEndpoint
+---
+apiVersion: storage.azure.com/v1api20230101
+kind: StorageAccountsBlobService
+metadata:
+  name: {{ include "container-storage-mi.storageAccountName" . }}-blobservice
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  owner:
+    name: {{ include "container-storage-mi.storageAccountName" . }}
+---
+apiVersion: storage.azure.com/v1api20230101
+kind: StorageAccountsBlobServicesContainer
+metadata:
+  name: {{ .Values.blobContainerName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  owner:
+    name: {{ include "container-storage-mi.storageAccountName" . }}-blobservice
+  publicAccess: None

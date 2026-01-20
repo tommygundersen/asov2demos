@@ -1,0 +1,15 @@
+# ASO v2: Log Analytics Workspace
+apiVersion: operationalinsights.azure.com/v1api20210601
+kind: Workspace
+metadata:
+  name: ${APP_NAME}-logs
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: ${APP_NAME}-logs
+  location: ${LOCATION}
+  owner:
+    name: ${RESOURCE_GROUP}
+  sku:
+    name: PerGB2018
+  retentionInDays: ${MONITORING_RETENTION_DAYS}

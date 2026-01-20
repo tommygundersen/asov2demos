@@ -1,0 +1,49 @@
+# Base kustomization for Cosmos DB with Monitoring and Managed Identity
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: cosmosdb-monitoring-mi-base
+
+resources:
+  - managed-identity.yaml
+  - federated-credential.yaml
+  - cosmosdb-account.yaml
+  - cosmosdb-database.yaml
+  - cosmosdb-container.yaml
+  - role-assignment.yaml
+  - private-endpoint.yaml
+  - dns-zone-group.yaml
+  - log-analytics.yaml
+  - application-insights.yaml
+  - service-account.yaml
+  - deployment.yaml
+  - service.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  platform.example.com/component: cosmosdb-monitoring-mi
+# Required variables (must be provided by overlay):
+#   - APP_NAME: Application name
+#   - RESOURCE_GROUP: Azure resource group
+#   - LOCATION: Azure region
+#   - NAMESPACE: Kubernetes namespace
+#   - OIDC_ISSUER_URL: AKS OIDC issuer
+#   - PRIVATE_ENDPOINT_SUBNET_ID: Subnet for private endpoints
+#   - COSMOS_DNS_ZONE_ID: Private DNS zone for Cosmos DB
+#
+# Cosmos DB variables:
+#   - COSMOS_DATABASE_NAME: Database name (default: appdb)
+#   - COSMOS_CONTAINER_NAME: Container name (default: items)
+#   - COSMOS_PARTITION_KEY: Partition key path (default: /id)
+#   - COSMOS_THROUGHPUT: Throughput RU/s (default: 400)
+#
+# Monitoring variables:
+#   - MONITORING_RETENTION_DAYS: Log retention (default: 30)
+#   - OTEL_LANGUAGE: Auto-instrumentation language (java/nodejs/python/dotnet)
+#
+# Application variables:
+#   - PORT: Application port (default: 8080)
+#   - IMAGE_REPO: Container image (default: nginx)
+#   - IMAGE_TAG: Image tag (default: 1.25-alpine)

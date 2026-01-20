@@ -1,0 +1,15 @@
+# ASO v2: Private DNS Zone Group for Storage Account
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpointsPrivateDnsZoneGroup
+metadata:
+  name: ${APP_NAME}-blob-dnsgroup
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: default
+  owner:
+    name: ${APP_NAME}-blob-pe
+  privateDnsZoneConfigs:
+    - name: blob-dns-config
+      privateDnsZoneReference:
+        armId: ${BLOB_DNS_ZONE_ID}

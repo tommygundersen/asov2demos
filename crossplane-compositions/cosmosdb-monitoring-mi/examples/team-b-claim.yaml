@@ -1,0 +1,46 @@
+# Team B: Cosmos DB Application with Monitoring Claim
+#
+# This is a Crossplane Claim that requests a CosmosApp.
+# Creates Cosmos DB, Application Insights, Managed Identity, and Kubernetes deployment.
+#
+apiVersion: platform.example.com/v1alpha1
+kind: CosmosApp
+metadata:
+  name: orders-api
+  namespace: team-b
+spec:
+  # === Required ===
+  appName: orders-api
+  resourceGroup: rg-team-b
+
+  # === Optional: Application settings ===
+  port: 3000
+  image:
+    repository: mcr.microsoft.com/azure-samples/cosmos-dotnet-quickstart
+    tag: "latest"
+
+  # === Optional: Cosmos DB settings ===
+  cosmos:
+    databaseName: ordersdb
+    containerName: orders
+    partitionKeyPath: "/customerId"
+    throughput: 400
+    consistencyLevel: Session
+
+  # === Optional: Monitoring settings ===
+  monitoring:
+    enabled: true
+    retentionDays: 30
+    autoInstrumentation:
+      enabled: true
+      language: dotnet
+
+  # === Infrastructure (typically injected by Crossplane EnvironmentConfigs) ===
+  privateEndpointSubnetId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-platform/providers/Microsoft.Network/virtualNetworks/vnet-team-b/subnets/private-endpoints"
+  privateDnsZoneId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-platform/providers/Microsoft.Network/privateDnsZones/privatelink.documents.azure.com"
+  oidcIssuerUrl: "https://eastus.oic.prod-aks.azure.com/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000/"
+
+  # === Multi-tenant: Reference team-specific ProviderConfig ===
+  # providerConfigRef: team-b
+# Connection secrets will be available:
+# kubectl get secret orders-api-connection -n team-b

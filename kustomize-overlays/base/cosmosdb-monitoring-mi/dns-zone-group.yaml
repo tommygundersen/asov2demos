@@ -1,0 +1,15 @@
+# ASO v2: Private DNS Zone Group for Cosmos DB
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpointsPrivateDnsZoneGroup
+metadata:
+  name: ${APP_NAME}-cosmos-dnsgroup
+  labels:
+    app: ${APP_NAME}
+spec:
+  azureName: default
+  owner:
+    name: ${APP_NAME}-cosmos-pe
+  privateDnsZoneConfigs:
+    - name: cosmos-dns-config
+      privateDnsZoneReference:
+        armId: ${COSMOS_DNS_ZONE_ID}

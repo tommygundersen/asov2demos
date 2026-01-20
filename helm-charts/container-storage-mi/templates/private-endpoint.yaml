@@ -1,0 +1,48 @@
+{{- $platformCM := lookup "v1" "ConfigMap" (default "kube-public" .Values.infrastructure.platformConfigMapNamespace) (default "aso-platform-config" .Values.infrastructure.platformConfigMap) }}
+{{- $teamCM := lookup "v1" "ConfigMap" .Release.Namespace (default "aso-team-config" .Values.infrastructure.teamConfigMap) }}
+{{- $privateEndpointSubnetId := .Values.privateEndpointSubnetId | default (get ($teamCM.data | default dict) "privateEndpointSubnetId") }}
+{{- $privateDnsZoneId := .Values.privateDnsZoneId | default (get ($platformCM.data | default dict) "blobDnsZoneId") }}
+{{- if $privateEndpointSubnetId }}
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpoint
+metadata:
+  name: {{ include "container-storage-mi.privateEndpointName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: networking
+spec:
+  location: {{ .Values.location | default "swedencentral" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  customNetworkInterfaceName: {{ include "container-storage-mi.privateEndpointName" . }}-nic
+  subnet:
+    reference:
+      armId: {{ $privateEndpointSubnetId }}
+  privateLinkServiceConnections:
+    - name: {{ include "container-storage-mi.privateEndpointName" . }}-connection
+      privateLinkServiceReference:
+        group: storage.azure.com
+        kind: StorageAccount
+        name: {{ include "container-storage-mi.storageAccountName" . }}
+      groupIds:
+        - blob
+{{- end }}
+---
+{{- if and $privateEndpointSubnetId $privateDnsZoneId }}
+apiVersion: network.azure.com/v1api20220701
+kind: PrivateEndpointsPrivateDnsZoneGroup
+metadata:
+  name: {{ include "container-storage-mi.privateEndpointName" . }}-dnsgroup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: networking
+spec:
+  owner:
+    name: {{ include "container-storage-mi.privateEndpointName" . }}
+  privateDnsZoneConfigs:
+    - name: blob-dns-config
+      privateDnsZoneReference:
+        armId: {{ $privateDnsZoneId }}
+{{- end }}

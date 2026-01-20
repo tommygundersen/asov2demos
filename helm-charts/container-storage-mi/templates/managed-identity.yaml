@@ -1,0 +1,23 @@
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: {{ include "container-storage-mi.managedIdentityName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "container-storage-mi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity
+spec:
+  location: {{ .Values.location | default "swedencentral" }}
+  owner:
+    name: {{ .Values.resourceGroup }}
+  operatorSpec:
+    configMaps:
+      principalId:
+        name: {{ .Values.containerName }}-identity-config
+        key: principalId
+      clientId:
+        name: {{ .Values.containerName }}-identity-config
+        key: clientId
+      tenantId:
+        name: {{ .Values.containerName }}-identity-config
+        key: tenantId
