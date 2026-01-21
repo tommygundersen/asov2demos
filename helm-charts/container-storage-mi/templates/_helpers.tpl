@@ -50,6 +50,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Generate storage account name (must be globally unique, 3-24 chars, lowercase alphanumeric)
+Uses a deterministic suffix based on release name to ensure consistency across templates
 */}}
 {{- define "container-storage-mi.storageAccountName" -}}
 {{- if .Values.storageAccountName }}
@@ -57,7 +58,8 @@ Generate storage account name (must be globally unique, 3-24 chars, lowercase al
 {{- else }}
 {{- $baseName := .Values.appName | lower | replace "-" "" | replace "_" "" }}
 {{- $truncatedName := $baseName | trunc 16 }}
-{{- printf "st%s%s" $truncatedName (randAlphaNum 6 | lower) }}
+{{- $suffix := .Release.Name | adler32sum | trunc 6 }}
+{{- printf "st%s%s" $truncatedName $suffix }}
 {{- end }}
 {{- end }}
 

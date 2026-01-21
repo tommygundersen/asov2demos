@@ -9,7 +9,11 @@ metadata:
 spec:
   location: {{ .Values.location | default "swedencentral" }}
   owner:
+    {{- if .Values.resourceGroupArmId }}
+    armId: {{ .Values.resourceGroupArmId }}
+    {{- else }}
     name: {{ .Values.resourceGroup }}
+    {{- end }}
   sku:
     name: {{ .Values.storageSku }}
   kind: {{ .Values.storageKind }}

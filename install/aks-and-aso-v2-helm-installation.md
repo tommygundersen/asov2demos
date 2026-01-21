@@ -726,11 +726,13 @@ helm upgrade --install aso2 aso2/azure-service-operator \
     --set azureTenantID=$AZURE_TENANT_ID \
     --set azureClientID=$ASO_CLIENT_ID \
     --set useWorkloadIdentityAuth=true \
-    --set crdPattern='resources.azure.com/*;containerservice.azure.com/*;keyvault.azure.com/*;managedidentity.azure.com/*;storage.azure.com/*;cache.azure.com/*;documentdb.azure.com/*;dbforpostgresql.azure.com/*;dbformysql.azure.com/*;servicebus.azure.com/*;eventhub.azure.com/*;insights.azure.com/*;operationalinsights.azure.com/*;network.azure.com/*'
+    --set crdPattern='resources.azure.com/*;containerservice.azure.com/*;keyvault.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*;cache.azure.com/*;documentdb.azure.com/*;dbforpostgresql.azure.com/*;dbformysql.azure.com/*;servicebus.azure.com/*;eventhub.azure.com/*;insights.azure.com/*;operationalinsights.azure.com/*;network.azure.com/*'
 ```
 
 > **Note:** The `crdPattern` above includes common resource types including:
 > - `keyvault.azure.com/*` - Azure Key Vault
+> - `managedidentity.azure.com/*` - User-Assigned Managed Identities and Federated Credentials
+> - `authorization.azure.com/*` - Role Assignments (required for granting identities access to resources)
 > - `insights.azure.com/*` - Application Insights
 > - `operationalinsights.azure.com/*` - Log Analytics Workspaces
 > - `documentdb.azure.com/*` - Azure Cosmos DB

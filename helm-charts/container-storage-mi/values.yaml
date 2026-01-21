@@ -2,7 +2,12 @@
 appName: "myapp"
 
 # Azure Resource Group where resources will be created
-resourceGroup: "rg-team-resources"
+# Use ONE of these options:
+#   resourceGroup: Name of an ASO-managed ResourceGroup CRD in the same namespace
+#   resourceGroupArmId: Full ARM ID of a pre-existing Azure resource group
+resourceGroup: ""
+resourceGroupArmId: ""
+# Example: resourceGroupArmId: "/subscriptions/<sub-id>/resourceGroups/rg-team-a"
 
 # Port for the application
 port: 8080
