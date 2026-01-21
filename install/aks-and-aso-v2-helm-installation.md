@@ -645,6 +645,21 @@ az role assignment create \
 
 > **🔒 Production Hardening:** Subscription-wide Contributor is used here for simplicity, but in production environments, prefer **Resource Group–scoped role assignments** where possible. This limits blast radius and satisfies least-privilege requirements. See [Option 3: Resource Group Limitations](#option-3-resource-group-limitations-single-subscription) in the Security Hardening section for an RG-scoped alternative.
 
+> **⚠️ RoleAssignment Resources Require Additional Permissions:**
+>
+> If your Helm charts or manifests create ASO `RoleAssignment` resources (e.g., granting a managed identity access to a storage account), the ASO identity needs **Role Based Access Control Administrator** or **User Access Administrator** in addition to Contributor:
+>
+> ```bash
+> # Grant RBAC Administrator (scoped to resource group for least privilege)
+> az role assignment create \
+>     --assignee-object-id $ASO_PRINCIPAL_ID \
+>     --assignee-principal-type ServicePrincipal \
+>     --role "Role Based Access Control Administrator" \
+>     --scope /subscriptions/$TEAM_A_SUBSCRIPTION_ID/resourceGroups/rg-team-a
+> ```
+>
+> Without this, ASO can create resources but cannot assign roles to managed identities.
+
 ### Create the Federated Credential
 
 Create a federated credential that links the managed identity to ASO's controller service account:
