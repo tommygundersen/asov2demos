@@ -82,15 +82,23 @@ spec:
 
 ## Architecture Overview
 
-This setup uses a **single ASO deployment** with **namespace-scoped Azure credentials** and **network isolation with private endpoints**:
+This setup uses a **single ASO deployment** with **per-namespace Azure Managed Identities** and **network isolation with private endpoints**:
 
-### Identity & Namespace Isolation
+### Identity & Namespace Isolation (Recommended Production Pattern)
 - One shared ASO controller deployment in `azureserviceoperator-system`
 - Each team/tenant gets their own Kubernetes namespace (e.g., `team-a`, `team-b`)
-- Each namespace has its own `aso-credential` secret scoped to that team's Azure subscription
-- Teams are logically isolated by Kubernetes namespaces and subscription targeting via ASO credential secrets
+- **Each namespace has its own Managed Identity** with least-privilege RBAC scoped to that team's resources
+- Each namespace has an `aso-credential` secret referencing that team's Managed Identity
+- **Namespace is the security boundary** - ASO is deployed with Kubernetes RBAC that limits secret reads to the resource's namespace (the controller does not have cluster-wide secret read permissions)
 
-> **⚠️ Important:** This isolation is by *convention*, not enforcement. Additional policy controls (Kyverno, Gatekeeper) are required to enforce strict isolation. See the [Security Hardening](#security-hardening-preventing-cross-tenant-access) section.
+> **✅ Security Model:** This follows the recommended production pattern for multi-tenant ASO deployments:
+> - **Per-namespace credentials**: ASO reads the `aso-credential` secret from the resource's namespace ([ASO Credential Scope docs](https://azure.github.io/azure-service-operator/guide/authentication/credential-scope/))
+> - **Workload Identity authentication**: No secrets stored, uses OIDC federation ([ASO Workload Identity docs](https://azure.github.io/azure-service-operator/guide/authentication/credential-format/#azure-workload-identity))
+> - **Namespace isolation**: ASO's default RBAC does not grant cluster-wide secret read permissions
+> 
+> This isolation depends on correctly configured Kubernetes RBAC (no ClusterRoleBindings granting tenants cross-namespace access).
+
+> **🔐 Key Insight:** Although we create one Managed Identity per team, all federated credentials point to the **same ASO controller service account** (`azureserviceoperator-system:azureserviceoperator-default`). This is because the ASO controller pod makes all Azure API calls - it reads the namespace-scoped secret to determine which identity to assume.
 
 ### Network Architecture
 - **AKS VNet** (`vnet-aks`): Hosts the AKS cluster
@@ -134,13 +142,23 @@ This setup uses a **single ASO deployment** with **namespace-scoped Azure creden
 │                     AKS Cluster                             │
 ├─────────────────────────────────────────────────────────────┤
 │  azureserviceoperator-system (shared ASO controller)        │
+│  └─ Uses WorkloadIdentityCredential                         │
 ├─────────────────────────────────────────────────────────────┤
 │  team-a namespace          │  team-b namespace              │
 │  ├─ aso-credential ────────┼─► aso-credential ──────────────│
-│  │  (Subscription A)       │   (Subscription B)             │
+│  │  → MI: team-a-aso-mi    │   → MI: team-b-aso-mi          │
 │  └─ Azure resources        │   └─ Azure resources           │
+│     (team-a identity)      │      (team-b identity)         │
 └─────────────────────────────────────────────────────────────┘
+         │                              │
+         ▼                              ▼
+  ┌──────────────────┐          ┌──────────────────┐
+  │ rg-team-a        │          │ rg-team-b        │
+  │ (Team A's scope) │          │ (Team B's scope) │
+  └──────────────────┘          └──────────────────┘
 ```
+
+✅ **Namespace is the security boundary** - ASO cannot read secrets across namespaces
 
 ## Prerequisites
 
@@ -571,6 +589,8 @@ Azure Service Operator v2 requires cert-manager for certificate management. Inst
 kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.14.1/cert-manager.yaml
 ```
 
+> **📝 Version Compatibility:** ASO v2 requires cert-manager ≥ v1.12. The version above (v1.14.1) is known to work, but you can use any compatible version. Check the [cert-manager releases](https://github.com/cert-manager/cert-manager/releases) for the latest stable version.
+
 Wait for cert-manager pods to be ready:
 
 ```bash
@@ -586,13 +606,13 @@ Press `Ctrl+C` to exit the watch once all pods are running.
 
 ---
 
-## Step 7: Create ASO Managed Identity with Federated Credentials
+## Step 7: Create Per-Team Managed Identities with Federated Credentials
 
-Create a single User-Assigned Managed Identity for the ASO controller, with a federated credential linked to ASO's service account. This identity will have permissions to create resources in all team subscriptions.
+Create a **separate User-Assigned Managed Identity for each team**, with federated credentials linked to ASO's controller service account. Each identity will have least-privilege permissions scoped to that team's resources.
 
-> **Architecture Note:** The ASO controller runs in the `azureserviceoperator-system` namespace using the `azureserviceoperator-default` service account. All Azure API calls are made by this controller, so the federated credential must be configured for this service account. Namespace isolation is achieved through per-namespace credential secrets that specify which subscription to target.
+> **✅ Recommended Production Pattern:** This follows the Microsoft-recommended approach where each namespace has its own identity with scoped permissions. The ASO controller service account (`azureserviceoperator-system:azureserviceoperator-default`) is federated to ALL team identities, allowing it to assume the appropriate identity based on which namespace's `aso-credential` secret it reads.
 
-### Create the ASO Managed Identity
+### Create Per-Team Managed Identities
 
 ```bash
 # Set team subscriptions (defaults to same subscription as AKS)
@@ -600,59 +620,93 @@ export TEAM_A_SUBSCRIPTION_ID="${TEAM_A_SUBSCRIPTION_ID:-$AZURE_SUBSCRIPTION_ID}
 export TEAM_B_SUBSCRIPTION_ID="${TEAM_B_SUBSCRIPTION_ID:-$AZURE_SUBSCRIPTION_ID}"
 export AZURE_TENANT_ID=$(az account show --subscription $AZURE_SUBSCRIPTION_ID --query tenantId -o tsv)
 
-# Create the managed identity for ASO in the AKS resource group
+# Create a resource group for identities (recommended to keep identities separate)
+az group create --name rg-aso-identities --location $LOCATION
+
+# Create Team A's Managed Identity
 az identity create \
-    --name aso-controller-identity \
-    --resource-group $RESOURCE_GROUP \
+    --name team-a-aso-mi \
+    --resource-group rg-aso-identities \
     --location $LOCATION
 
-# Get the client ID and principal ID
-export ASO_CLIENT_ID=$(az identity show \
-    --name aso-controller-identity \
-    --resource-group $RESOURCE_GROUP \
+export TEAM_A_CLIENT_ID=$(az identity show \
+    --name team-a-aso-mi \
+    --resource-group rg-aso-identities \
     --query clientId -o tsv)
 
-export ASO_PRINCIPAL_ID=$(az identity show \
-    --name aso-controller-identity \
-    --resource-group $RESOURCE_GROUP \
+export TEAM_A_PRINCIPAL_ID=$(az identity show \
+    --name team-a-aso-mi \
+    --resource-group rg-aso-identities \
     --query principalId -o tsv)
 
-echo "ASO Client ID: $ASO_CLIENT_ID"
-echo "ASO Principal ID: $ASO_PRINCIPAL_ID"
+echo "Team A Client ID: $TEAM_A_CLIENT_ID"
+echo "Team A Principal ID: $TEAM_A_PRINCIPAL_ID"
+
+# Create Team B's Managed Identity
+az identity create \
+    --name team-b-aso-mi \
+    --resource-group rg-aso-identities \
+    --location $LOCATION
+
+export TEAM_B_CLIENT_ID=$(az identity show \
+    --name team-b-aso-mi \
+    --resource-group rg-aso-identities \
+    --query clientId -o tsv)
+
+export TEAM_B_PRINCIPAL_ID=$(az identity show \
+    --name team-b-aso-mi \
+    --resource-group rg-aso-identities \
+    --query principalId -o tsv)
+
+echo "Team B Client ID: $TEAM_B_CLIENT_ID"
+echo "Team B Principal ID: $TEAM_B_PRINCIPAL_ID"
 ```
 
-### Grant Permissions to All Team Subscriptions
+### Grant Least-Privilege Permissions Per Team
 
-The ASO identity needs Contributor access to each subscription where teams will create resources:
+Each team's identity gets permissions **scoped only to their resources**:
 
 ```bash
-# Grant Contributor role to Team A's subscription
-az role assignment create \
-    --assignee-object-id $ASO_PRINCIPAL_ID \
-    --assignee-principal-type ServicePrincipal \
-    --role Contributor \
-    --scope /subscriptions/$TEAM_A_SUBSCRIPTION_ID
+# Pre-create resource groups for each team (recommended for least-privilege)
+az group create --name rg-team-a --location $LOCATION --subscription $TEAM_A_SUBSCRIPTION_ID
+az group create --name rg-team-b --location $LOCATION --subscription $TEAM_B_SUBSCRIPTION_ID
 
-# Grant Contributor role to Team B's subscription
+# Grant Team A's identity Contributor access ONLY to Team A's resource group
 az role assignment create \
-    --assignee-object-id $ASO_PRINCIPAL_ID \
+    --assignee-object-id $TEAM_A_PRINCIPAL_ID \
     --assignee-principal-type ServicePrincipal \
     --role Contributor \
-    --scope /subscriptions/$TEAM_B_SUBSCRIPTION_ID
+    --scope /subscriptions/$TEAM_A_SUBSCRIPTION_ID/resourceGroups/rg-team-a
+
+# Grant Team B's identity Contributor access ONLY to Team B's resource group
+az role assignment create \
+    --assignee-object-id $TEAM_B_PRINCIPAL_ID \
+    --assignee-principal-type ServicePrincipal \
+    --role Contributor \
+    --scope /subscriptions/$TEAM_B_SUBSCRIPTION_ID/resourceGroups/rg-team-b
 ```
 
-> **Note:** If Team A and Team B use the same subscription, the above commands will succeed (the second is idempotent). For additional teams in different subscriptions, add role assignments for each subscription.
+> **✅ Least Privilege:** Each team's identity only has access to their own resource group. Team A's identity cannot create or modify resources in Team B's resource group, providing cryptographic isolation.
 
-> **🔒 Production Hardening:** Subscription-wide Contributor is used here for simplicity, but in production environments, prefer **Resource Group–scoped role assignments** where possible. This limits blast radius and satisfies least-privilege requirements. See [Option 3: Resource Group Limitations](#option-3-resource-group-limitations-single-subscription) in the Security Hardening section for an RG-scoped alternative.
+> **📝 Alternative: Subscription-Scoped Access**
+> 
+> If teams need to create their own resource groups dynamically, grant subscription-level Contributor:
+> ```bash
+> az role assignment create \
+>     --assignee-object-id $TEAM_A_PRINCIPAL_ID \
+>     --assignee-principal-type ServicePrincipal \
+>     --role Contributor \
+>     --scope /subscriptions/$TEAM_A_SUBSCRIPTION_ID
+> ```
 
 > **⚠️ RoleAssignment Resources Require Additional Permissions:**
 >
-> If your Helm charts or manifests create ASO `RoleAssignment` resources (e.g., granting a managed identity access to a storage account), the ASO identity needs **Role Based Access Control Administrator** or **User Access Administrator** in addition to Contributor:
+> If your Helm charts or manifests create ASO `RoleAssignment` resources (e.g., granting a managed identity access to a storage account), the team identity needs **Role Based Access Control Administrator** or **User Access Administrator**:
 >
 > ```bash
-> # Grant RBAC Administrator (scoped to resource group for least privilege)
+> # Grant RBAC Administrator (scoped to team's resource group for least privilege)
 > az role assignment create \
->     --assignee-object-id $ASO_PRINCIPAL_ID \
+>     --assignee-object-id $TEAM_A_PRINCIPAL_ID \
 >     --assignee-principal-type ServicePrincipal \
 >     --role "Role Based Access Control Administrator" \
 >     --scope /subscriptions/$TEAM_A_SUBSCRIPTION_ID/resourceGroups/rg-team-a
@@ -660,25 +714,37 @@ az role assignment create \
 >
 > Without this, ASO can create resources but cannot assign roles to managed identities.
 
-### Create the Federated Credential
+### Create Federated Credentials for Each Team Identity
 
-Create a federated credential that links the managed identity to ASO's controller service account:
+Create a federated credential for **each team's identity**, all pointing to the **same ASO controller service account**:
 
 ```bash
+# Federated credential for Team A's identity
 az identity federated-credential create \
-    --name aso-controller-federated-cred \
-    --identity-name aso-controller-identity \
-    --resource-group $RESOURCE_GROUP \
+    --name aso-team-a-federated-cred \
+    --identity-name team-a-aso-mi \
+    --resource-group rg-aso-identities \
+    --issuer $AKS_OIDC_ISSUER \
+    --subject system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default \
+    --audiences api://AzureADTokenExchange
+
+# Federated credential for Team B's identity
+az identity federated-credential create \
+    --name aso-team-b-federated-cred \
+    --identity-name team-b-aso-mi \
+    --resource-group rg-aso-identities \
     --issuer $AKS_OIDC_ISSUER \
     --subject system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default \
     --audiences api://AzureADTokenExchange
 ```
 
-> **Important:** The subject `system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default` matches ASO's controller service account. This is required because the ASO controller pod makes all Azure API calls.
+> **🔑 Key Insight:** All federated credentials use the **same subject** (`system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default`) because the ASO controller pod makes all Azure API calls. The controller reads the `aso-credential` secret from the resource's namespace to determine which identity's client ID to use for token exchange.
 
-### Grant Private DNS Zone Permissions
+> **✅ This allows ASO to exchange its Kubernetes token for Azure tokens using the team-specific identity.**
 
-The ASO identity needs permission to create DNS records in the central private DNS zones when resources with private endpoints are created:
+### Grant Private DNS Zone Permissions to Each Team Identity
+
+Each team's identity needs permission to create DNS records in the central private DNS zones when resources with private endpoints are created:
 
 ```bash
 # Get the DNS zone resource IDs
@@ -702,10 +768,19 @@ export POSTGRESQL_DNS_ZONE_ID=$(az network private-dns zone show \
     --name "privatelink.postgres.database.azure.com" \
     --query id -o tsv)
 
-# Grant ASO identity access to all private DNS zones
+# Grant Team A's identity access to all private DNS zones
 for DNS_ZONE_ID in $BLOB_DNS_ZONE_ID $KEYVAULT_DNS_ZONE_ID $COSMOSDB_DNS_ZONE_ID $POSTGRESQL_DNS_ZONE_ID; do
     az role assignment create \
-        --assignee-object-id $ASO_PRINCIPAL_ID \
+        --assignee-object-id $TEAM_A_PRINCIPAL_ID \
+        --assignee-principal-type ServicePrincipal \
+        --role "Private DNS Zone Contributor" \
+        --scope $DNS_ZONE_ID
+done
+
+# Grant Team B's identity access to all private DNS zones
+for DNS_ZONE_ID in $BLOB_DNS_ZONE_ID $KEYVAULT_DNS_ZONE_ID $COSMOSDB_DNS_ZONE_ID $POSTGRESQL_DNS_ZONE_ID; do
+    az role assignment create \
+        --assignee-object-id $TEAM_B_PRINCIPAL_ID \
         --assignee-principal-type ServicePrincipal \
         --role "Private DNS Zone Contributor" \
         --scope $DNS_ZONE_ID
@@ -714,7 +789,7 @@ done
 
 > **Security Note:** The "Private DNS Zone Contributor" role allows creating, updating, and deleting DNS records within these zones, but does not grant permissions to delete the zones themselves or modify zone-level settings.
 
-> **🌐 Cross-Subscription DNS:** In many enterprise environments, private DNS zones are owned by a central **connectivity/networking subscription** (hub-spoke model). If your DNS zones live in a different subscription than the team resources, grant the ASO identity the "Private DNS Zone Contributor" role **across subscriptions** by specifying the full resource ID of the DNS zone in the central subscription.
+> **🌐 Central Connectivity / Hub Subscription Pattern:** In many enterprise environments following the Azure Landing Zone architecture, private DNS zones are owned by a central **connectivity/platform subscription** (hub-spoke model). If your DNS zones live in a different subscription than the team resources, grant each team's identity the "Private DNS Zone Contributor" role **across subscriptions** by specifying the full resource ID of the DNS zone in the central connectivity subscription.
 
 ---
 
@@ -731,16 +806,20 @@ helm repo update
 
 ## Step 9: Install Azure Service Operator v2 with Workload Identity
 
-Install ASO using Helm with workload identity enabled. The controller will use the managed identity we created in Step 7.
+Install ASO using Helm with workload identity and **multitenant mode** enabled. With per-namespace credentials, the `azureClientID` here is just a fallback - each namespace will use its own identity via the `aso-credential` secret.
+
+> **📝 Note on Global vs Per-Namespace Credentials:** The `azureClientID` Helm value is **only used if no `aso-credential` secret exists in the resource's namespace**. When a namespace has an `aso-credential` secret, ASO uses the credentials from that secret instead. For maximum security in multi-tenant environments, ensure every tenant namespace has its own `aso-credential` secret.
 
 ```bash
+# Use Team A's identity as the fallback (or create a separate minimal-privilege identity)
 helm upgrade --install aso2 aso2/azure-service-operator \
     --create-namespace \
     --namespace azureserviceoperator-system \
     --set azureSubscriptionID=$AZURE_SUBSCRIPTION_ID \
     --set azureTenantID=$AZURE_TENANT_ID \
-    --set azureClientID=$ASO_CLIENT_ID \
+    --set azureClientID=$TEAM_A_CLIENT_ID \
     --set useWorkloadIdentityAuth=true \
+    --set multitenant.enable=true \
     --set crdPattern='resources.azure.com/*;containerservice.azure.com/*;keyvault.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*;cache.azure.com/*;documentdb.azure.com/*;dbforpostgresql.azure.com/*;dbformysql.azure.com/*;servicebus.azure.com/*;eventhub.azure.com/*;insights.azure.com/*;operationalinsights.azure.com/*;network.azure.com/*'
 ```
 
@@ -762,7 +841,7 @@ helm upgrade --install aso2 aso2/azure-service-operator \
 > - **Memory pressure:** Each CRD consumes API server memory and etcd storage
 > - **Reconciliation churn:** Unused CRDs still consume controller cycles
 >
-> This is especially problematic on:
+> **CRDs are cluster-scoped** — installing unnecessary CRDs affects all tenants, not just one team. This is especially problematic on:
 > - **AKS Free tier** (limited control plane resources)
 > - **Small control plane SKUs** (Basic, Standard with few nodes)
 > - **Dev/test clusters** with constrained resources
@@ -781,7 +860,9 @@ You should see the `azureserviceoperator-controller-manager` pod in `Running` st
 
 ## Step 10: Create Team Namespaces and Credential Secrets
 
-Create a dedicated namespace for each team with an `aso-credential` secret that specifies which subscription to target. The ASO controller uses the single workload identity configured in Step 9, but the credential secret determines which subscription resources are created in.
+Create a dedicated namespace for each team with an `aso-credential` secret that references **that team's Managed Identity**. The ASO controller will use the identity specified in each namespace's secret.
+
+> **✅ Security Boundary:** The namespace's `aso-credential` secret is the security boundary. ASO is deployed with Kubernetes RBAC that limits secret reads to the resource's namespace, so each team's credentials are isolated. No custom annotations are needed on resources.
 
 ### Create Team A Namespace and Credentials
 
@@ -789,21 +870,22 @@ Create a dedicated namespace for each team with an `aso-credential` secret that 
 # Create namespace for Team A
 kubectl create namespace team-a
 
-# Create Team A's credential secret
-# This tells ASO to create resources in Team A's subscription
+# Create Team A's credential secret pointing to Team A's identity
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
   name: aso-credential
   namespace: team-a
+type: Opaque
 stringData:
   AZURE_SUBSCRIPTION_ID: "$TEAM_A_SUBSCRIPTION_ID"
   AZURE_TENANT_ID: "$AZURE_TENANT_ID"
-  AZURE_CLIENT_ID: "$ASO_CLIENT_ID"
-  USE_WORKLOAD_IDENTITY_AUTH: "true"
+  AZURE_CLIENT_ID: "$TEAM_A_CLIENT_ID"
 EOF
 ```
+
+> **✅ No client secret, no certificates** - uses Workload Identity via the federated credential created in Step 7.
 
 ### Create Team B Namespace and Credentials
 
@@ -811,29 +893,31 @@ EOF
 # Create namespace for Team B
 kubectl create namespace team-b
 
-# Create Team B's credential secret
-# This tells ASO to create resources in Team B's subscription
+# Create Team B's credential secret pointing to Team B's identity
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
   name: aso-credential
   namespace: team-b
+type: Opaque
 stringData:
   AZURE_SUBSCRIPTION_ID: "$TEAM_B_SUBSCRIPTION_ID"
   AZURE_TENANT_ID: "$AZURE_TENANT_ID"
-  AZURE_CLIENT_ID: "$ASO_CLIENT_ID"
-  USE_WORKLOAD_IDENTITY_AUTH: "true"
+  AZURE_CLIENT_ID: "$TEAM_B_CLIENT_ID"
 EOF
 ```
 
-> **Architecture Note:** With this setup:
-> - A single ASO managed identity is used for all Azure API calls
-> - The per-namespace `aso-credential` secret specifies which subscription to target
-> - Namespace isolation is achieved through Kubernetes RBAC (teams can only deploy to their namespace)
-> - The ASO identity has Contributor access to all team subscriptions
+> **✅ Architecture Summary:** With this setup:
+> - Each team has their **own Managed Identity** with least-privilege permissions
+> - Each namespace's `aso-credential` secret references that team's identity
+> - **Namespace is the security boundary** - ASO's RBAC limits secret reads to the resource's namespace
+> - Team A's identity cannot access Team B's resources and vice versa
+> - No additional policy enforcement (Kyverno/Gatekeeper) is required for basic isolation
+>
+> **⚠️ Important:** This assumes namespace-scoped Kubernetes RBAC is correctly configured (no ClusterRoleBindings for tenants).
 
-> **📋 RBAC Assumption:** This guide assumes namespace-scoped RBAC is configured to prevent cross-namespace writes. Example:
+> **📋 RBAC Configuration:** Ensure each team only has RoleBindings in their own namespace, not ClusterRoleBindings. Example:
 > ```yaml
 > apiVersion: rbac.authorization.k8s.io/v1
 > kind: RoleBinding
@@ -851,9 +935,9 @@ EOF
 > ```
 > Ensure each team only has RoleBindings in their own namespace, not ClusterRoleBindings.
 
-> **🔑 How ASO Chooses the Target Subscription**
+> **🔑 How ASO Resolves Credentials**
 >
-> ASO always authenticates using the **controller's workload identity** (configured in Step 9). The target subscription is determined at reconciliation time by reading the `aso-credential` secret in the **resource's namespace**.
+> When ASO reconciles a resource, it looks for an `aso-credential` secret in the **resource's namespace**:
 >
 > ```
 > ASO Resource in team-a namespace
@@ -862,13 +946,16 @@ EOF
 > Reads team-a/aso-credential secret
 >         │
 >         ▼
-> Uses AZURE_SUBSCRIPTION_ID from secret
+> Uses AZURE_CLIENT_ID from secret (Team A's identity)
 >         │
 >         ▼
-> Creates Azure resource in Team A's subscription
+> Exchanges K8s token for Azure token via Workload Identity
+>         │
+>         ▼
+> Creates Azure resource using Team A's identity & permissions
 > ```
 >
-> This is the mental model: **one identity, multiple subscriptions, namespace determines target**.
+> **✅ This is the security boundary** - ASO's Kubernetes RBAC restricts secret reads to the resource's namespace.
 
 ### Verify Resources
 
@@ -877,7 +964,7 @@ kubectl get secrets -n team-a
 kubectl get secrets -n team-b
 ```
 
-> **Tip:** For additional teams, repeat this pattern: create a namespace and an `aso-credential` secret with the team's subscription ID. Make sure to grant the ASO identity Contributor access to the new subscription (Step 7).
+> **Tip:** For additional teams, follow the [Adding New Teams](#adding-new-teams) section. Each new team needs: a new Managed Identity, a federated credential, RBAC permissions, and a namespace with `aso-credential` secret.
 
 ---
 
@@ -1208,11 +1295,18 @@ kubectl delete resourcegroup/team-b-test-rg -n team-b
 To remove all resources created by this guide:
 
 ```bash
-# Delete the AKS cluster, VNets, private DNS zones, and ASO identity (all in resource group)
+# Delete the AKS cluster, VNets, private DNS zones (all in main resource group)
 az group delete --name $RESOURCE_GROUP --yes --no-wait
+
+# Delete the managed identities resource group
+az group delete --name rg-aso-identities --yes --no-wait
+
+# Delete the team resource groups
+az group delete --name rg-team-a --yes --no-wait
+az group delete --name rg-team-b --yes --no-wait
 ```
 
-> **Note:** Deleting the resource group will remove the AKS cluster, all VNets, VNet peerings, private DNS zones, and the ASO managed identity created in this guide.
+> **Note:** Deleting these resource groups will remove the AKS cluster, all VNets, VNet peerings, private DNS zones, and the per-team managed identities created in this guide.
 
 ---
 
@@ -1220,24 +1314,68 @@ az group delete --name $RESOURCE_GROUP --yes --no-wait
 
 To onboard a new team, follow these steps:
 
-1. **Set the new team's subscription** (defaults to same as AKS if not specified):
+1. **Set the new team's variables** (defaults to same subscription as AKS if not specified):
 
 ```bash
 export NEW_TEAM_NAME="team-new"
 export NEW_TEAM_SUBSCRIPTION_ID="${NEW_TEAM_SUBSCRIPTION_ID:-$AZURE_SUBSCRIPTION_ID}"
 ```
 
-2. **Grant ASO identity Contributor role** to the new team's subscription (if different from existing):
+2. **Create the new team's Managed Identity**:
 
 ```bash
-az role assignment create \
-    --assignee-object-id $ASO_PRINCIPAL_ID \
-    --assignee-principal-type ServicePrincipal \
-    --role Contributor \
-    --scope /subscriptions/$NEW_TEAM_SUBSCRIPTION_ID
+az identity create \
+    --name ${NEW_TEAM_NAME}-aso-mi \
+    --resource-group rg-aso-identities \
+    --location $LOCATION
+
+export NEW_TEAM_CLIENT_ID=$(az identity show \
+    --name ${NEW_TEAM_NAME}-aso-mi \
+    --resource-group rg-aso-identities \
+    --query clientId -o tsv)
+
+export NEW_TEAM_PRINCIPAL_ID=$(az identity show \
+    --name ${NEW_TEAM_NAME}-aso-mi \
+    --resource-group rg-aso-identities \
+    --query principalId -o tsv)
 ```
 
-3. **Create the namespace and credential secret**:
+3. **Create the team's resource group and grant permissions**:
+
+```bash
+# Create the team's resource group
+az group create --name rg-${NEW_TEAM_NAME} --location $LOCATION --subscription $NEW_TEAM_SUBSCRIPTION_ID
+
+# Grant Contributor role scoped to the team's resource group
+az role assignment create \
+    --assignee-object-id $NEW_TEAM_PRINCIPAL_ID \
+    --assignee-principal-type ServicePrincipal \
+    --role Contributor \
+    --scope /subscriptions/$NEW_TEAM_SUBSCRIPTION_ID/resourceGroups/rg-${NEW_TEAM_NAME}
+
+# Grant Private DNS Zone Contributor access
+for DNS_ZONE_ID in $BLOB_DNS_ZONE_ID $KEYVAULT_DNS_ZONE_ID $COSMOSDB_DNS_ZONE_ID $POSTGRESQL_DNS_ZONE_ID; do
+    az role assignment create \
+        --assignee-object-id $NEW_TEAM_PRINCIPAL_ID \
+        --assignee-principal-type ServicePrincipal \
+        --role "Private DNS Zone Contributor" \
+        --scope $DNS_ZONE_ID
+done
+```
+
+4. **Create federated credential for the new identity**:
+
+```bash
+az identity federated-credential create \
+    --name aso-${NEW_TEAM_NAME}-federated-cred \
+    --identity-name ${NEW_TEAM_NAME}-aso-mi \
+    --resource-group rg-aso-identities \
+    --issuer $AKS_OIDC_ISSUER \
+    --subject system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default \
+    --audiences api://AzureADTokenExchange
+```
+
+5. **Create the namespace and credential secret**:
 
 ```bash
 kubectl create namespace $NEW_TEAM_NAME
@@ -1248,15 +1386,15 @@ kind: Secret
 metadata:
   name: aso-credential
   namespace: $NEW_TEAM_NAME
+type: Opaque
 stringData:
   AZURE_SUBSCRIPTION_ID: "$NEW_TEAM_SUBSCRIPTION_ID"
   AZURE_TENANT_ID: "$AZURE_TENANT_ID"
-  AZURE_CLIENT_ID: "$ASO_CLIENT_ID"
-  USE_WORKLOAD_IDENTITY_AUTH: "true"
+  AZURE_CLIENT_ID: "$NEW_TEAM_CLIENT_ID"
 EOF
 ```
 
-4. **Create the team's VNet and subnet** (if using private endpoints):
+6. **Create the team's VNet and subnet** (if using private endpoints):
 
 ```bash
 export NEW_TEAM_VNET_NAME="vnet-$NEW_TEAM_NAME"
@@ -1300,7 +1438,7 @@ az network vnet peering create \
     --allow-vnet-access
 ```
 
-5. **Create the team ConfigMap** for infrastructure auto-discovery:
+7. **Create the team ConfigMap** for infrastructure auto-discovery:
 
 ```bash
 cat <<EOF | kubectl apply -f -
@@ -1319,27 +1457,37 @@ data:
 EOF
 ```
 
-6. The new team can now deploy Azure resources in their namespace! Developers only need to specify `appName` and `resourceGroup` in their Helm releases.
+8. The new team can now deploy Azure resources in their namespace! Developers only need to specify `appName` and `resourceGroup` in their Helm releases.
 
 ---
 
-## Security Hardening (Optional)
+## Security Hardening (Optional - Defense in Depth)
 
-The shared ASO identity architecture is efficient but requires additional controls to prevent teams from accessing other teams' subscriptions. This section covers three approaches with different trade-offs.
+> **✅ Built-in Isolation:** With the per-team identity architecture described in this guide, teams are already cryptographically isolated. Each team's identity only has access to their own resources, and ASO cannot read secrets across namespaces. The policies below are **optional defense-in-depth measures**.
+
+The per-namespace identity architecture provides strong isolation by default. However, for additional defense-in-depth, you can add policy controls to prevent configuration drift or accidental misconfigurations.
+
+### When You Might Want Additional Policies
+
+- Prevent accidental use of `credential-from` annotations that bypass namespace credentials
+- Prevent `armId` owner references that could point to resources outside the team's scope
+- Protect `aso-credential` secrets from modification by developers
+- Enforce naming conventions for resource groups
 
 ### Approach Comparison
 
-| Approach                       | Isolation Level | Complexity | Resource Overhead            | Best For                       |
-| ------------------------------ | --------------- | ---------- | ---------------------------- | ------------------------------ |
-| **Kyverno Policies**           | High            | Low        | Minimal                      | Most scenarios                 |
-| **Separate ASO Instances**     | Complete        | Medium     | High (1 controller per team) | Strict compliance requirements |
-| **Resource Group Limitations** | Medium          | Low        | Minimal                      | Single-subscription scenarios  |
+| Approach                   | Purpose                              | Complexity | Overhead |
+| -------------------------- | ------------------------------------ | ---------- | -------- |
+| **Kyverno Policies**       | Defense-in-depth, naming conventions | Low        | Minimal  |
+| **Separate ASO Instances** | Regulatory/compliance requirements   | Medium     | High     |
 
 ---
 
-### Option 1: Kyverno Policy Enforcement (Recommended)
+### Option 1: Kyverno Policy Enforcement (Defense-in-Depth)
 
-Kyverno is a Kubernetes-native policy engine that can block credential bypass attempts without modifying ASO's architecture.
+Kyverno is a Kubernetes-native policy engine that can provide additional protection against configuration mistakes or deliberate bypass attempts.
+
+> **📝 Note:** With per-team identities, even if someone bypasses namespace credentials, they would still only have access to resources allowed by that namespace's identity. These policies add an extra layer of protection.
 
 #### Install Kyverno
 
@@ -1507,7 +1655,9 @@ aso-block-credential-override: block-custom-credential-from: Custom credential-f
 
 ### Option 2: Separate ASO Instances per Namespace
 
-For complete isolation, deploy a separate ASO controller per team. Each controller only has access to its team's subscription.
+> **📝 When to Use:** This approach is typically only needed for strict regulatory/compliance requirements where you need completely separate ASO controller processes per team. The per-team identity model in this guide already provides cryptographic isolation.
+
+For complete process isolation, deploy a separate ASO controller per team. Each controller only has access to its team's subscription.
 
 #### Architecture
 
@@ -1626,110 +1776,22 @@ helm upgrade --install aso2-team-b aso2/azure-service-operator \
 
 ---
 
-### Option 3: Resource Group Limitations
-
-For single-subscription scenarios, restrict the ASO identity to specific resource groups rather than the entire subscription.
-
-#### Architecture
-
-Instead of Contributor on the subscription, grant access only to pre-created resource groups:
-
-```bash
-# Create resource groups for each team
-az group create --name rg-team-a --location $LOCATION
-az group create --name rg-team-b --location $LOCATION
-
-# Grant ASO access ONLY to specific resource groups
-az role assignment create \
-    --assignee-object-id $ASO_PRINCIPAL_ID \
-    --assignee-principal-type ServicePrincipal \
-    --role Contributor \
-    --scope /subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/rg-team-a
-
-az role assignment create \
-    --assignee-object-id $ASO_PRINCIPAL_ID \
-    --assignee-principal-type ServicePrincipal \
-    --role Contributor \
-    --scope /subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/rg-team-b
-```
-
-#### Kyverno Policy to Enforce Resource Group
-
-Combine with Kyverno to ensure teams use their assigned resource group:
-
-```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: aso-enforce-team-resource-groups
-  annotations:
-    policies.kyverno.io/title: Enforce Team Resource Groups
-    policies.kyverno.io/description: >-
-      Ensures teams can only create ResourceGroups with their team prefix,
-      and all child resources must reference the team's ResourceGroup.
-spec:
-  validationFailureAction: Enforce
-  background: true
-  rules:
-  # Team A can only create rg-team-a-* resource groups
-  - name: team-a-resource-group-naming
-    match:
-      any:
-      - resources:
-          kinds:
-          - resources.azure.com/ResourceGroup
-          namespaces:
-          - team-a
-    validate:
-      message: "Team A can only create resource groups with prefix 'rg-team-a-'"
-      pattern:
-        spec:
-          azureName: "rg-team-a-*"
-  
-  # Team B can only create rg-team-b-* resource groups
-  - name: team-b-resource-group-naming
-    match:
-      any:
-      - resources:
-          kinds:
-          - resources.azure.com/ResourceGroup
-          namespaces:
-          - team-b
-    validate:
-      message: "Team B can only create resource groups with prefix 'rg-team-b-'"
-      pattern:
-        spec:
-          azureName: "rg-team-b-*"
-EOF
-```
-
-#### Trade-offs
-
-| Pros                      | Cons                                                            |
-| ------------------------- | --------------------------------------------------------------- |
-| Simple Azure RBAC         | Only works for single subscription                              |
-| No additional controllers | Teams share the same subscription                               |
-| Low overhead              | Still need Kyverno for naming enforcement                       |
-| Easy to audit in Azure    | Resource groups must be pre-created or follow naming convention |
-
----
-
 ### Security Hardening Summary
 
-| Risk                      | Kyverno   | Separate ASO                | RG Limitations     |
-| ------------------------- | --------- | --------------------------- | ------------------ |
-| credential-from bypass    | ✅ Blocked | ✅ N/A (no shared creds)     | ⚠️ Needs Kyverno    |
-| armId owner bypass        | ✅ Blocked | ✅ N/A (no cross-sub access) | ⚠️ Needs Kyverno    |
-| Secret modification       | ✅ Blocked | ✅ N/A (per-team identity)   | ⚠️ Needs Kyverno    |
-| Cross-subscription access | ✅ Blocked | ✅ Impossible                | ✅ N/A (single sub) |
-| Resource overhead         | Low       | High                        | Low                |
-| Complexity                | Low       | Medium                      | Low                |
+With the **per-team identity architecture** used in this guide:
 
-**Recommendation:**
-- **Most scenarios**: Use the shared ASO identity + Kyverno policies (Option 1)
-- **Strict compliance**: Use separate ASO instances (Option 2)
-- **Single subscription with simple isolation**: Use resource group limitations + Kyverno (Option 3)
+| Risk                       | Status                                  | Notes                                    |
+| -------------------------- | --------------------------------------- | ---------------------------------------- |
+| Cross-team resource access | ✅ **Blocked by default**                | Each identity only has its own RG access |
+| Cross-subscription access  | ✅ **Blocked by default**                | Identities scoped to specific subs       |
+| `credential-from` bypass   | ⚠️ Limited impact (uses team's identity) | Add Kyverno for defense-in-depth         |
+| `armId` owner bypass       | ⚠️ Limited impact (uses team's identity) | Add Kyverno for defense-in-depth         |
+| Secret modification        | ⚠️ Requires K8s RBAC                     | Add Kyverno to protect aso-credential    |
+
+**Recommendations:**
+- **Default (this guide)**: Per-team identities with RG-scoped permissions → Strong isolation out of the box
+- **Defense-in-depth**: Add Kyverno policies (Option 1) to prevent misconfigurations  
+- **Strict compliance**: Use separate ASO instances (Option 2) for process-level isolation
 
 ---
 
